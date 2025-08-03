@@ -12,6 +12,7 @@
         "php": "^8.2",
         "inertiajs/inertia-laravel": "^2.0",
         "laravel/framework": "^12.0",
+        "laravel/sanctum": "^4.2",
         "laravel/tinker": "^2.10.1",
         "laraveles/spanish": "^1.5",
         "spatie/laravel-permission": "^6.21",
@@ -57,7 +58,7 @@
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"npm run dev\" --names='server,queue,vite'"
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74\" \"php artisan serve --host=192.168.5.44 --port=8000\" \"php artisan queue:listen --tries=1\" \"npm run dev\" --names='server,queue,vite'"
         ],
         "dev:ssr": [
             "npm run build:ssr",

@@ -7,14 +7,16 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
+use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable, HasRoles;
+    use HasFactory, Notifiable, HasRoles, HasApiTokens;
 
     /**
      * The attributes that are mass assignable.
@@ -27,8 +29,10 @@ class User extends Authenticatable
         'password',
         'phone',
         'address',
+        'profile_image',
         'latitude',
         'longitude',
+        'assigned_cobrador_id',
     ];
 
     /**
@@ -62,6 +66,22 @@ class User extends Authenticatable
     public function routes(): HasMany
     {
         return $this->hasMany(Route::class, 'cobrador_id');
+    }
+
+    /**
+     * Get the clients assigned to this cobrador.
+     */
+    public function assignedClients(): HasMany
+    {
+        return $this->hasMany(User::class, 'assigned_cobrador_id');
+    }
+
+    /**
+     * Get the cobrador assigned to this client.
+     */
+    public function assignedCobrador(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_cobrador_id');
     }
 
     /**
@@ -111,14 +131,6 @@ class User extends Authenticatable
     {
         return $this->belongsToMany(Route::class, 'client_routes', 'client_id', 'route_id')
                     ->withTimestamps();
-    }
-
-    /**
-     * Check if the user has a specific role.
-     */
-    public function hasRole($role): bool
-    {
-        return $this->hasRole($role);
     }
 
     /**
@@ -183,5 +195,18 @@ class User extends Authenticatable
         $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
 
         return 6371 * $c; // Earth's radius in kilometers
+    }
+
+    /**
+     * Get the profile image URL.
+     */
+    public function getProfileImageUrlAttribute(): string
+    {
+        if ($this->profile_image) {
+            return asset('storage/' . $this->profile_image);
+        }
+        
+        // Retorna una imagen por defecto
+        return asset('images/default-avatar.png');
     }
 }

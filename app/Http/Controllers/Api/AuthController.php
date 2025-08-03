@@ -19,7 +19,7 @@ class AuthController extends BaseController
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8|confirmed',
-            'phone' => 'nullable|string|max:20',
+            'phone' => 'nullable|string|max:20|unique:users',
             'address' => 'nullable|string',
         ]);
 
@@ -45,21 +45,35 @@ class AuthController extends BaseController
     public function login(Request $request)
     {
         $request->validate([
-            'email' => 'required|email',
+            'email_or_phone' => 'required|string',
             'password' => 'required',
         ]);
 
-        if (!Auth::attempt($request->only('email', 'password'))) {
+        $emailOrPhone = $request->email_or_phone;
+        
+        // Determinar si es email o teléfono
+        $isEmail = filter_var($emailOrPhone, FILTER_VALIDATE_EMAIL);
+        
+        if ($isEmail) {
+            // Buscar por email
+            $user = User::where('email', $emailOrPhone)->first();
+        } else {
+            // Buscar por teléfono
+            $user = User::where('phone', $emailOrPhone)->first();
+        }
+
+        if (!$user || !Hash::check($request->password, $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['Las credenciales proporcionadas son incorrectas.'],
+                'email_or_phone' => ['Las credenciales proporcionadas son incorrectas.'],
             ]);
         }
 
-        $user = User::where('email', $request->email)->firstOrFail();
+        // Crear token para API
         $token = $user->createToken('auth_token')->plainTextToken;
-
+        $user->roles;
+        $user->permissions;
         return $this->sendResponse([
-            'user' => $user,
+            'user' => $user,            
             'token' => $token,
         ], 'Inicio de sesión exitoso');
     }
@@ -83,5 +97,29 @@ class AuthController extends BaseController
         $user->load('roles', 'permissions');
 
         return $this->sendResponse($user);
+    }
+
+    /**
+     * Check if email or phone exists.
+     */
+    public function checkExists(Request $request)
+    {
+        $request->validate([
+            'email_or_phone' => 'required|string',
+        ]);
+
+        $emailOrPhone = $request->email_or_phone;
+        $isEmail = filter_var($emailOrPhone, FILTER_VALIDATE_EMAIL);
+        
+        if ($isEmail) {
+            $exists = User::where('email', $emailOrPhone)->exists();
+        } else {
+            $exists = User::where('phone', $emailOrPhone)->exists();
+        }
+
+        return $this->sendResponse([
+            'exists' => $exists,
+            'type' => $isEmail ? 'email' : 'phone'
+        ]);
     }
 } 
