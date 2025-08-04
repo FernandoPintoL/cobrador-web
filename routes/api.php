@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\CashBalanceController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\MapController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\CreditPaymentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -77,6 +78,9 @@ Route::middleware('auth:sanctum')->group(function () {
     ]);
     Route::get('/credits/client/{client}', [CreditController::class, 'getByClient'])->name('api.credits.by-client');
     Route::get('/credits/{credit}/remaining-installments', [CreditController::class, 'getRemainingInstallments'])->name('api.credits.remaining-installments');
+    Route::get('/credits/cobrador/{cobrador}', [CreditController::class, 'getByCobrador'])->name('api.credits.by-cobrador');
+    Route::get('/credits/cobrador/{cobrador}/stats', [CreditController::class, 'getCobradorStats'])->name('api.credits.cobrador-stats');
+    Route::get('/credits-requiring-attention', [CreditController::class, 'getCreditsRequiringAttention'])->name('api.credits.requiring-attention');
 
     // Pagos
     Route::apiResource('payments', PaymentController::class)->names([
@@ -128,4 +132,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard/recent-activity', [DashboardController::class, 'getRecentActivity'])->name('api.dashboard.recent-activity');
     Route::get('/dashboard/alerts', [DashboardController::class, 'getAlerts'])->name('api.dashboard.alerts');
     Route::get('/dashboard/performance-metrics', [DashboardController::class, 'getPerformanceMetrics'])->name('api.dashboard.performance-metrics');
+
+    // Gestión avanzada de pagos de créditos
+    Route::prefix('credits/{credit}')->group(function () {
+        Route::post('/payments', [CreditPaymentController::class, 'processPayment'])->name('api.credits.process-payment');
+        Route::get('/details', [CreditPaymentController::class, 'getCreditDetails'])->name('api.credits.details');
+        Route::post('/simulate-payment', [CreditPaymentController::class, 'simulatePayment'])->name('api.credits.simulate-payment');
+        Route::get('/payment-schedule', [CreditPaymentController::class, 'getPaymentSchedule'])->name('api.credits.payment-schedule');
+    });
+    
+    // Créditos atrasados
+    Route::get('/credits/overdue', [CreditPaymentController::class, 'getOverdueCredits'])->name('api.credits.overdue');
 }); 
