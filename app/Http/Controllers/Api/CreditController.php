@@ -84,7 +84,10 @@ class CreditController extends BaseController
             'client_id' => $request->client_id,
             'created_by' => $currentUser->id,
             'amount' => $request->amount,
+            'interest_rate' => $request->interest_rate ?? 0, // Asignar tasa de interés si se proporciona
+            'total_amount' => $request->total_amount ?? $request->amount, // Asignar monto total si se proporciona
             'balance' => $request->balance,
+            'installment_amount' => $request->installment_amount ?? ($request->amount / 1), // Asignar monto de la cuota si se proporciona
             'frequency' => $request->frequency,
             'start_date' => $request->start_date,
             'end_date' => $request->end_date,

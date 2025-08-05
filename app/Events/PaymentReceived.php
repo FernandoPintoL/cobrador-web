@@ -2,7 +2,7 @@
 
 namespace App\Events;
 
-use App\Models\Credit;
+use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
@@ -12,19 +12,19 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class CreditRequiresAttention implements ShouldBroadcast
+class PaymentReceived implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    public $credit;
+    public $payment;
     public $cobrador;
 
     /**
      * Create a new event instance.
      */
-    public function __construct(Credit $credit, User $cobrador)
+    public function __construct(Payment $payment, User $cobrador)
     {
-        $this->credit = $credit;
+        $this->payment = $payment;
         $this->cobrador = $cobrador;
     }
 
@@ -35,7 +35,7 @@ class CreditRequiresAttention implements ShouldBroadcast
     {
         return [
             new PrivateChannel('cobrador.' . $this->cobrador->id),
-            new Channel('credits.attention')
+            new Channel('payments.received')
         ];
     }
 
@@ -45,18 +45,17 @@ class CreditRequiresAttention implements ShouldBroadcast
     public function broadcastWith(): array
     {
         return [
-            'credit_id' => $this->credit->id,
-            'client_id' => $this->credit->client_id,
-            'client_name' => $this->credit->client->name,
-            'amount' => $this->credit->amount,
-            'total_amount' => $this->credit->total_amount,
-            'interest_rate' => $this->credit->interest_rate,
-            'installment_amount' => $this->credit->installment_amount,
-            'payment_frequency' => $this->credit->payment_frequency,
-            'end_date' => $this->credit->end_date->format('Y-m-d'),
-            'days_overdue' => now()->diffInDays($this->credit->end_date, false),
+            'payment_id' => $this->payment->id,
+            'credit_id' => $this->payment->credit_id,
+            'client_id' => $this->payment->credit->client_id,
+            'client_name' => $this->payment->credit->client->name,
+            'amount' => $this->payment->amount,
+            'payment_date' => $this->payment->payment_date->format('Y-m-d'),
+            'payment_method' => $this->payment->payment_method,
             'cobrador_id' => $this->cobrador->id,
-            'type' => 'credit_attention',
+            'remaining_balance' => $this->payment->credit->total_amount - $this->payment->credit->payments()->sum('amount'),
+            'installments_paid' => $this->payment->credit->payments()->count(),
+            'type' => 'payment_received',
             'timestamp' => now()->toISOString()
         ];
     }
@@ -66,6 +65,6 @@ class CreditRequiresAttention implements ShouldBroadcast
      */
     public function broadcastAs(): string
     {
-        return 'credit.requires.attention';
+        return 'payment.received';
     }
 }

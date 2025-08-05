@@ -96,4 +96,56 @@ class Payment extends Model
     {
         return !is_null($this->latitude) && !is_null($this->longitude);
     }
+
+    /**
+     * Model events
+     */
+    protected static function booted()
+    {
+        // Evento cuando se crea un nuevo pago
+        static::created(function ($payment) {
+            try {
+                // Actualizar el balance del crédito
+                $credit = $payment->credit;
+                if ($credit) {
+                    $credit->balance = $credit->balance - $payment->amount;
+                    $credit->save();
+                }
+
+                // Disparar evento de pago recibido
+                $cobrador = $payment->cobrador;
+                if ($cobrador) {
+                    event(new \App\Events\PaymentReceived($payment, $cobrador));
+                }
+            } catch (\Exception $e) {
+                \Log::error('Error processing payment creation events', [
+                    'payment_id' => $payment->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+        });
+
+        // Evento cuando se actualiza un pago
+        static::updated(function ($payment) {
+            try {
+                // Si el monto cambió, actualizar el balance del crédito
+                if ($payment->wasChanged('amount')) {
+                    $credit = $payment->credit;
+                    if ($credit) {
+                        $oldAmount = $payment->getOriginal('amount');
+                        $newAmount = $payment->amount;
+                        $difference = $newAmount - $oldAmount;
+                        
+                        $credit->balance = $credit->balance - $difference;
+                        $credit->save();
+                    }
+                }
+            } catch (\Exception $e) {
+                \Log::error('Error processing payment update events', [
+                    'payment_id' => $payment->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+        });
+    }
 } 

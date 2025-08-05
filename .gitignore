@@ -10,6 +10,9 @@
 .env
 .env.backup
 .env.production
+
+# WebSocket Server (Node.js)
+/websocket-server/
 .phpactor.json
 .phpunit.result.cache
 Homestead.json

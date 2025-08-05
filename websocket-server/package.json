@@ -1,6 +1,7 @@
 {
     "name": "cobrador-websocket-server",
     "version": "1.0.0",
+    "type": "module",
     "description": "WebSocket server para la aplicación Cobrador",
     "main": "server.js",
     "scripts": {

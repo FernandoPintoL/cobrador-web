@@ -11,7 +11,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Register WebSocket Notification Service
+        $this->app->singleton(\App\Services\WebSocketNotificationService::class);
     }
 
     /**

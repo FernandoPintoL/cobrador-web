@@ -1,16 +1,23 @@
-const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
-const cors = require('cors');
-const path = require('path');
-const { getLocalIP, generateConfig } = require('./network-utils');
-require('dotenv').config();
+/* eslint-env node */
+import express from 'express';
+import http from 'http';
+import { Server as socketIo } from 'socket.io';
+import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { getLocalIP } from './network-utils.js';
+import dotenv from 'dotenv';
+dotenv.config();
+
+// Define __dirname for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
 
 // Configurar CORS para Socket.IO - Compatible con móviles
-const io = socketIo(server, {
+const io = new socketIo(server, {
     cors: {
         origin: [
             process.env.CLIENT_URL || "http://localhost:3000",
@@ -71,7 +78,49 @@ app.get('/test.html', (req, res) => {
 
 // Ruta de salud del servidor
 app.get('/health', (req, res) => {
-    res.json({ status: 'OK', message: 'WebSocket server is running' });
+    const activeConnections = activeUsers.size;
+    const uptime = process.uptime();
+
+    res.json({
+        status: 'OK',
+        message: 'WebSocket server is running',
+        connections: activeConnections,
+        uptime: uptime,
+        timestamp: new Date().toISOString()
+    });
+});
+
+// API endpoint para notificaciones externas (Laravel)
+app.post('/notify', (req, res) => {
+    const { event, data } = req.body;
+
+    console.log('📡 Received notification from external source:', event, data);
+
+    // Enviar notificación a todos los clientes conectados o específicos
+    if (data.user_id) {
+        // Buscar socket específico del usuario
+        const userSocket = Array.from(activeUsers.entries())
+            .find(([socketId, userData]) => userData.userId == data.user_id);
+
+        if (userSocket) {
+            const [socketId] = userSocket;
+            io.to(socketId).emit(event, data);
+            console.log(`📨 Notification sent to user ${data.user_id}:`, event);
+        } else {
+            console.log(`⚠️ User ${data.user_id} not connected`);
+        }
+    } else {
+        // Broadcast a todos los usuarios conectados
+        io.emit(event, data);
+        console.log(`📢 Broadcast notification sent:`, event);
+    }
+
+    res.json({
+        success: true,
+        message: 'Notification sent',
+        event: event,
+        target: data.user_id ? `user ${data.user_id}` : 'all users'
+    });
 });
 
 // Eventos de Socket.IO

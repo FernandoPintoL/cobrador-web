@@ -12,20 +12,22 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class CreditRequiresAttention implements ShouldBroadcast
+class CreditWaitingListUpdate implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public $credit;
-    public $cobrador;
+    public $action; // 'approved', 'rejected', 'delivered', 'rescheduled'
+    public $user;
 
     /**
      * Create a new event instance.
      */
-    public function __construct(Credit $credit, User $cobrador)
+    public function __construct(Credit $credit, string $action, User $user)
     {
         $this->credit = $credit;
-        $this->cobrador = $cobrador;
+        $this->action = $action;
+        $this->user = $user;
     }
 
     /**
@@ -34,8 +36,10 @@ class CreditRequiresAttention implements ShouldBroadcast
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel('cobrador.' . $this->cobrador->id),
-            new Channel('credits.attention')
+            new PrivateChannel('waiting-list'),
+            new PrivateChannel('user.' . $this->credit->client_id),
+            new PrivateChannel('user.' . $this->credit->created_by),
+            new PrivateChannel('cobrador.' . $this->credit->created_by),
         ];
     }
 
@@ -48,15 +52,16 @@ class CreditRequiresAttention implements ShouldBroadcast
             'credit_id' => $this->credit->id,
             'client_id' => $this->credit->client_id,
             'client_name' => $this->credit->client->name,
+            'action' => $this->action,
             'amount' => $this->credit->amount,
             'total_amount' => $this->credit->total_amount,
-            'interest_rate' => $this->credit->interest_rate,
-            'installment_amount' => $this->credit->installment_amount,
-            'payment_frequency' => $this->credit->payment_frequency,
-            'end_date' => $this->credit->end_date->format('Y-m-d'),
-            'days_overdue' => now()->diffInDays($this->credit->end_date, false),
-            'cobrador_id' => $this->cobrador->id,
-            'type' => 'credit_attention',
+            'status' => $this->credit->status,
+            'scheduled_delivery_date' => $this->credit->scheduled_delivery_date,
+            'delivery_status' => $this->credit->getDeliveryStatusInfo(),
+            'user' => [
+                'id' => $this->user->id,
+                'name' => $this->user->name,
+            ],
             'timestamp' => now()->toISOString()
         ];
     }
@@ -66,6 +71,6 @@ class CreditRequiresAttention implements ShouldBroadcast
      */
     public function broadcastAs(): string
     {
-        return 'credit.requires.attention';
+        return 'credit.waiting.list.update';
     }
 }

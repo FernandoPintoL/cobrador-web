@@ -11,6 +11,8 @@ use App\Http\Controllers\Api\CashBalanceController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\MapController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\WebSocketNotificationController;
+use App\Http\Controllers\Api\CreditWaitingListController;
 use App\Http\Controllers\CreditPaymentController;
 
 /*
@@ -143,4 +145,30 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Créditos atrasados
     Route::get('/credits/overdue', [CreditPaymentController::class, 'getOverdueCredits'])->name('api.credits.overdue');
+    
+    // Sistema de Lista de Espera para Créditos
+    Route::prefix('credits/waiting-list')->group(function () {
+        Route::get('/pending-approval', [CreditWaitingListController::class, 'pendingApproval'])->name('api.credits.waiting-list.pending-approval');
+        Route::get('/waiting-delivery', [CreditWaitingListController::class, 'waitingForDelivery'])->name('api.credits.waiting-list.waiting-delivery');
+        Route::get('/ready-today', [CreditWaitingListController::class, 'readyForDeliveryToday'])->name('api.credits.waiting-list.ready-today');
+        Route::get('/overdue-delivery', [CreditWaitingListController::class, 'overdueForDelivery'])->name('api.credits.waiting-list.overdue-delivery');
+        Route::get('/summary', [CreditWaitingListController::class, 'getSummary'])->name('api.credits.waiting-list.summary');
+    });
+    
+    Route::prefix('credits/{credit}/waiting-list')->group(function () {
+        Route::post('/approve', [CreditWaitingListController::class, 'approve'])->name('api.credits.waiting-list.approve');
+        Route::post('/reject', [CreditWaitingListController::class, 'reject'])->name('api.credits.waiting-list.reject');
+        Route::post('/deliver', [CreditWaitingListController::class, 'deliver'])->name('api.credits.waiting-list.deliver');
+        Route::post('/reschedule', [CreditWaitingListController::class, 'reschedule'])->name('api.credits.waiting-list.reschedule');
+        Route::get('/status', [CreditWaitingListController::class, 'getDeliveryStatus'])->name('api.credits.waiting-list.status');
+    });
+    
+    // WebSocket Notifications
+    Route::prefix('websocket')->group(function () {
+        Route::post('/credit-attention/{credit}', [WebSocketNotificationController::class, 'sendCreditAttentionNotification'])->name('api.websocket.credit-attention');
+        Route::post('/payment-notification', [WebSocketNotificationController::class, 'sendPaymentNotification'])->name('api.websocket.payment-notification');
+        Route::get('/notifications', [WebSocketNotificationController::class, 'getRealtimeNotifications'])->name('api.websocket.notifications');
+        Route::post('/test', [WebSocketNotificationController::class, 'testWebSocket'])->name('api.websocket.test');
+        Route::get('/test-connection', [WebSocketNotificationController::class, 'testDirectWebSocket'])->name('api.websocket.test-connection');
+    });
 }); 

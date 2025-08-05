@@ -7,11 +7,20 @@ use App\Models\User;
 use App\Models\Credit;
 use App\Events\CreditRequiresAttention;
 use App\Events\PaymentReceived;
+use App\Events\TestNotification;
+use App\Services\WebSocketNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class WebSocketNotificationController extends BaseController
 {
+    protected $webSocketService;
+
+    public function __construct(WebSocketNotificationService $webSocketService)
+    {
+        $this->webSocketService = $webSocketService;
+    }
+
     /**
      * Send real-time notification for credit requiring attention
      */
@@ -33,12 +42,17 @@ class WebSocketNotificationController extends BaseController
                 'credit_id' => $credit->id,
                 'client_name' => $credit->client->name,
                 'amount' => $credit->amount,
+                'total_amount' => $credit->total_amount,
+                'interest_rate' => $credit->interest_rate,
                 'end_date' => $credit->end_date->format('Y-m-d'),
             ],
         ]);
         
-        // Enviar notificación en tiempo real
+        // Enviar notificación en tiempo real vía Broadcasting y WebSocket
         broadcast(new CreditRequiresAttention($credit, $cobrador));
+        
+        // También enviar directamente al WebSocket Node.js
+        $this->webSocketService->sendCreditAttention($credit, $cobrador);
         
         return $this->sendResponse($notification, 'Notificación enviada exitosamente');
     }
@@ -68,7 +82,9 @@ class WebSocketNotificationController extends BaseController
                 ],
             ]);
             
+            // Enviar vía Broadcasting y WebSocket
             broadcast(new PaymentReceived($payment, $payment->cobrador));
+            $this->webSocketService->sendPaymentReceived($payment, $payment->cobrador);
         }
         
         return $this->sendResponse([], 'Notificación de pago enviada');
@@ -107,8 +123,24 @@ class WebSocketNotificationController extends BaseController
         ]);
         
         // Enviar vía WebSocket
-        broadcast(new \App\Events\TestNotification($notification, $user));
+        broadcast(new TestNotification($notification, $user));
         
-        return $this->sendResponse($notification, 'Notificación de prueba enviada vía WebSocket');
+        // Test connection to WebSocket server
+        $connectionTest = $this->webSocketService->testConnection();
+        
+        return $this->sendResponse([
+            'notification' => $notification,
+            'websocket_connection' => $connectionTest
+        ], 'Notificación de prueba enviada vía WebSocket');
+    }
+    
+    /**
+     * Test direct WebSocket connection
+     */
+    public function testDirectWebSocket(Request $request)
+    {
+        $connectionTest = $this->webSocketService->testConnection();
+        
+        return $this->sendResponse($connectionTest, 'Test de conexión directa al WebSocket');
     }
 }

@@ -1,9 +1,9 @@
-const os = require('os');
+import os from 'os';
 
 /**
  * Detectar IP local automáticamente
  */
-function getLocalIP() {
+export function getLocalIP() {
     const interfaces = os.networkInterfaces();
 
     for (const name of Object.keys(interfaces)) {
@@ -25,7 +25,7 @@ function getLocalIP() {
 /**
  * Obtener todas las IPs disponibles
  */
-function getAllIPs() {
+export function getAllIPs() {
     const interfaces = os.networkInterfaces();
     const ips = [];
 
@@ -47,7 +47,7 @@ function getAllIPs() {
 /**
  * Verificar si una IP es privada
  */
-function isPrivateIP(ip) {
+export function isPrivateIP(ip) {
     return ip.startsWith('192.168.') ||
         ip.startsWith('10.') ||
         ip.match(/^172\.(1[6-9]|2\d|3[01])\./);
@@ -56,7 +56,7 @@ function isPrivateIP(ip) {
 /**
  * Generar URLs de configuración
  */
-function generateConfig(port = 3001) {
+export function generateConfig(port = 3001) {
     const localIP = getLocalIP();
     const allIPs = getAllIPs();
 
@@ -109,15 +109,8 @@ function generateConfig(port = 3001) {
     };
 }
 
-// Si se ejecuta directamente
-if (require.main === module) {
+// Si se ejecuta directamente (ES6 modules)
+if (import.meta.url === `file://${process.argv[1]}`) {
     const port = process.argv[2] || process.env.WEBSOCKET_PORT || 3001;
     generateConfig(parseInt(port));
 }
-
-module.exports = {
-    getLocalIP,
-    getAllIPs,
-    isPrivateIP,
-    generateConfig
-};

@@ -66,7 +66,7 @@ class UserController extends BaseController
         $validationRules = [
             'name' => 'required|string|max:255',
             'password' => 'nullable|string|min:8',
-            'phone' => 'nullable|string|max:20',
+            'phone' => 'nullable|string|max:20|unique:users,phone',
             'address' => 'nullable|string',
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'roles' => 'required|array|min:1',
@@ -182,7 +182,7 @@ class UserController extends BaseController
         // Validación dinámica basada en el rol actual del usuario
         $validationRules = [
             'name' => 'required|string|max:255',
-            'phone' => 'nullable|string|max:20',
+            'phone' => 'nullable|string|max:20|unique:users,phone,' . $user->id,
             'address' => 'nullable|string',
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'roles' => 'array',

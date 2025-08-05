@@ -24,11 +24,21 @@ class Credit extends Model
         'start_date',
         'end_date',
         'status',
+        'scheduled_delivery_date',
+        'approved_by',
+        'approved_at',
+        'delivered_at',
+        'delivered_by',
+        'delivery_notes',
+        'rejection_reason',
     ];
 
     protected $casts = [
         'start_date' => 'date',
         'end_date' => 'date',
+        'scheduled_delivery_date' => 'datetime',
+        'approved_at' => 'datetime',
+        'delivered_at' => 'datetime',
         'amount' => 'decimal:2',
         'interest_rate' => 'decimal:2',
         'total_amount' => 'decimal:2',
@@ -50,6 +60,22 @@ class Credit extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * Get the user who approved this credit for delivery.
+     */
+    public function approvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    /**
+     * Get the user who delivered this credit to the client.
+     */
+    public function deliveredBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'delivered_by');
     }
 
     /**
@@ -81,7 +107,7 @@ class Credit extends Model
         
         switch ($this->frequency) {
             case 'daily':
-                return $startDate->diffInDays($endDate) + 1;
+                return $startDate->diffInDays($endDate);
             case 'weekly':
                 return $startDate->diffInWeeks($endDate) + 1;
             case 'biweekly':
@@ -199,7 +225,7 @@ class Credit extends Model
     }
 
     /**
-     * Process a payment (can be partial, exact, or excess)
+     * Procesar un pago (puede ser parcial, exacto o en exceso)
      */
     public function processPayment(float $paymentAmount, string $paymentType = 'regular'): array
     {
@@ -281,6 +307,37 @@ class Credit extends Model
     }
 
     /**
+     * Determine if the credit requires attention
+     */
+    public function requiresAttention(): bool
+    {
+        // Verificar si el crédito está vencido
+        if ($this->end_date && Carbon::now()->isAfter($this->end_date)) {
+            return true;
+        }
+
+        // Verificar si hay un alto balance pendiente (más del 80% del total)
+        if ($this->balance && $this->total_amount) {
+            $percentageRemaining = ($this->balance / $this->total_amount) * 100;
+            if ($percentageRemaining > 80 && Carbon::now()->isAfter(Carbon::parse($this->start_date)->addDays(7))) {
+                return true;
+            }
+        }
+
+        // Verificar si está próximo a vencer (dentro de 3 días)
+        if ($this->end_date && Carbon::now()->addDays(3)->isAfter($this->end_date)) {
+            return true;
+        }
+
+        // Verificar si el status es 'overdue' o 'defaulted'
+        if (in_array($this->status, ['overdue', 'defaulted'])) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * Auto-calculate fields before saving
      */
     protected static function booted()
@@ -301,5 +358,234 @@ class Credit extends Model
                 $credit->balance = $credit->total_amount;
             }
         });
+
+        // Evento cuando un crédito se actualiza y puede requerir atención
+        static::updated(function ($credit) {
+            // Verificar si el crédito requiere atención (vencido, balance alto, etc.)
+            if ($credit->requiresAttention()) {
+                try {
+                    $cobrador = $credit->client->assignedCobrador ?? $credit->createdBy;
+                    if ($cobrador) {
+                        event(new \App\Events\CreditRequiresAttention($credit, $cobrador));
+                    }
+                } catch (\Exception $e) {
+                    \Log::error('Error dispatching CreditRequiresAttention event', [
+                        'credit_id' => $credit->id,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+        });
+    }
+
+    // ===========================================
+    // MÉTODOS PARA SISTEMA DE LISTA DE ESPERA
+    // ===========================================
+
+    /**
+     * Approve credit for delivery and set scheduled delivery date
+     */
+    public function approveForDelivery(int $approvedById, \DateTime $scheduledDate, string $notes = null): bool
+    {
+        if ($this->status !== 'pending_approval') {
+            return false;
+        }
+
+        $this->update([
+            'status' => 'waiting_delivery',
+            'approved_by' => $approvedById,
+            'approved_at' => now(),
+            'scheduled_delivery_date' => $scheduledDate,
+            'delivery_notes' => $notes
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Reject the credit with a reason
+     */
+    public function reject(int $rejectedById, string $reason): bool
+    {
+        if (!in_array($this->status, ['pending_approval', 'waiting_delivery'])) {
+            return false;
+        }
+
+        $this->update([
+            'status' => 'rejected',
+            'approved_by' => $rejectedById,
+            'approved_at' => now(),
+            'rejection_reason' => $reason
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Deliver the credit to the client (activate it)
+     */
+    public function deliverToClient(int $deliveredById, string $notes = null): bool
+    {
+        if ($this->status !== 'waiting_delivery') {
+            return false;
+        }
+
+        $this->update([
+            'status' => 'active',
+            'delivered_by' => $deliveredById,
+            'delivered_at' => now(),
+            'delivery_notes' => $notes ? $this->delivery_notes . "\n\nEntrega: " . $notes : $this->delivery_notes
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Check if the credit is ready for delivery (scheduled date reached)
+     */
+    public function isReadyForDelivery(): bool
+    {
+        return $this->status === 'waiting_delivery' 
+            && $this->scheduled_delivery_date 
+            && $this->scheduled_delivery_date <= now();
+    }
+
+    /**
+     * Check if the credit is overdue for delivery
+     */
+    public function isOverdueForDelivery(): bool
+    {
+        return $this->status === 'waiting_delivery' 
+            && $this->scheduled_delivery_date 
+            && $this->scheduled_delivery_date < now()->subDays(1); // 1 día de gracia
+    }
+
+    /**
+     * Get days until scheduled delivery
+     */
+    public function getDaysUntilDelivery(): int
+    {
+        if (!$this->scheduled_delivery_date || $this->status !== 'waiting_delivery') {
+            return 0;
+        }
+
+        return max(0, now()->diffInDays($this->scheduled_delivery_date, false));
+    }
+
+    /**
+     * Get days overdue for delivery
+     */
+    public function getDaysOverdueForDelivery(): int
+    {
+        if (!$this->scheduled_delivery_date || $this->status !== 'waiting_delivery') {
+            return 0;
+        }
+
+        $daysPast = now()->diffInDays($this->scheduled_delivery_date, false);
+        return $daysPast < 0 ? abs($daysPast) : 0;
+    }
+
+    /**
+     * Reschedule delivery date
+     */
+    public function rescheduleDelivery(\DateTime $newDate, int $rescheduledById, string $reason = null): bool
+    {
+        if ($this->status !== 'waiting_delivery') {
+            return false;
+        }
+
+        $oldDate = $this->scheduled_delivery_date;
+        $notes = $this->delivery_notes ?? '';
+        $notes .= "\n\nReprogramado por usuario {$rescheduledById}: " . $oldDate->format('Y-m-d H:i') . " -> " . $newDate->format('Y-m-d H:i');
+        if ($reason) {
+            $notes .= "\nMotivo: " . $reason;
+        }
+
+        $this->update([
+            'scheduled_delivery_date' => $newDate,
+            'delivery_notes' => $notes
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Get credits waiting for delivery
+     */
+    public static function waitingForDelivery()
+    {
+        return self::where('status', 'waiting_delivery')
+            ->with(['client', 'createdBy', 'approvedBy'])
+            ->orderBy('scheduled_delivery_date', 'asc');
+    }
+
+    /**
+     * Get credits ready for delivery today
+     */
+    public static function readyForDeliveryToday()
+    {
+        return self::waitingForDelivery()
+            ->whereDate('scheduled_delivery_date', '<=', now())
+            ->get();
+    }
+
+    /**
+     * Get credits overdue for delivery
+     */
+    public static function overdueForDelivery()
+    {
+        return self::waitingForDelivery()
+            ->where('scheduled_delivery_date', '<', now()->subDays(1))
+            ->get();
+    }
+
+    /**
+     * Get credits pending approval
+     */
+    public static function pendingApproval()
+    {
+        return self::where('status', 'pending_approval')
+            ->with(['client', 'createdBy'])
+            ->orderBy('created_at', 'asc');
+    }
+
+    /**
+     * Check if user can approve credits (manager or admin)
+     */
+    public static function userCanApprove(User $user): bool
+    {
+        return $user->hasRole(['manager', 'admin']);
+    }
+
+    /**
+     * Check if user can deliver credits (cobrador, manager, or admin)
+     */
+    public static function userCanDeliver(User $user): bool
+    {
+        return $user->hasRole(['cobrador', 'manager', 'admin']);
+    }
+
+    /**
+     * Get delivery status information
+     */
+    public function getDeliveryStatusInfo(): array
+    {
+        return [
+            'status' => $this->status,
+            'is_pending_approval' => $this->status === 'pending_approval',
+            'is_waiting_delivery' => $this->status === 'waiting_delivery',
+            'is_active' => $this->status === 'active',
+            'is_ready_for_delivery' => $this->isReadyForDelivery(),
+            'is_overdue_for_delivery' => $this->isOverdueForDelivery(),
+            'days_until_delivery' => $this->getDaysUntilDelivery(),
+            'days_overdue_for_delivery' => $this->getDaysOverdueForDelivery(),
+            'scheduled_delivery_date' => $this->scheduled_delivery_date,
+            'approved_by' => $this->approvedBy,
+            'approved_at' => $this->approved_at,
+            'delivered_by' => $this->deliveredBy,
+            'delivered_at' => $this->delivered_at,
+            'delivery_notes' => $this->delivery_notes,
+            'rejection_reason' => $this->rejection_reason,
+        ];
     }
 } 
