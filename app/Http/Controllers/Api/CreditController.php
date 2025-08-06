@@ -57,12 +57,14 @@ class CreditController extends BaseController
     {
         $request->validate([
             'client_id' => 'required|exists:users,id',
+            'cobrador_id' => 'nullable|exists:users,id', // Para que managers puedan especificar el cobrador
             'amount' => 'required|numeric|min:0',
             'balance' => 'required|numeric|min:0',
             'frequency' => 'required|in:daily,weekly,biweekly,monthly',
             'start_date' => 'required|date',
             'end_date' => 'required|date|after:start_date',
-            'status' => 'in:active,completed,defaulted,cancelled',
+            'status' => 'in:pending_approval,waiting_delivery,active,completed,defaulted,cancelled',
+            'scheduled_delivery_date' => 'nullable|date|after:now', // Para managers que quieran programar entrega
         ]);
 
         $currentUser = Auth::user();
@@ -73,30 +75,211 @@ class CreditController extends BaseController
             return $this->sendError('Cliente no válido', 'El usuario especificado no es un cliente', 400);
         }
         
-        // Si el usuario es cobrador, verificar que el cliente esté asignado a él
+        // Validar cobrador_id si se proporciona
+        $targetCobrador = null;
+        if ($request->has('cobrador_id')) {
+            $targetCobrador = User::findOrFail($request->cobrador_id);
+            if (!$targetCobrador->hasRole('cobrador')) {
+                return $this->sendError('Cobrador no válido', 'El usuario especificado no es un cobrador', 400);
+            }
+        }
+        
+        // Lógica de permisos según el rol del usuario autenticado
         if ($currentUser->hasRole('cobrador')) {
+            // Los cobradores solo pueden crear créditos para sus clientes asignados
             if ($client->assigned_cobrador_id !== $currentUser->id) {
                 return $this->sendError('No autorizado', 'No puedes crear créditos para clientes que no tienes asignados', 403);
             }
+            // Los cobradores no pueden especificar otro cobrador
+            if ($request->has('cobrador_id') && $request->cobrador_id !== $currentUser->id) {
+                return $this->sendError('No autorizado', 'Los cobradores solo pueden crear créditos para sí mismos', 403);
+            }
+        } elseif ($currentUser->hasRole('manager')) {
+            // Los managers pueden crear créditos para:
+            // 1. Clientes asignados directamente a ellos
+            // 2. Clientes de cobradores bajo su supervisión
+            
+            $isDirectlyAssigned = $client->assigned_manager_id === $currentUser->id;
+            $isAssignedThroughCobrador = $client->assignedCobrador && 
+                                       $client->assignedCobrador->assigned_manager_id === $currentUser->id;
+            
+            if ($targetCobrador) {
+                // Si especifica cobrador, debe estar asignado al manager
+                if ($targetCobrador->assigned_manager_id !== $currentUser->id) {
+                    return $this->sendError('No autorizado', 'No puedes crear créditos para cobradores que no tienes asignados', 403);
+                }
+                // Y el cliente debe estar asignado al cobrador especificado
+                if ($client->assigned_cobrador_id !== $targetCobrador->id) {
+                    return $this->sendError('No autorizado', 'El cliente no está asignado al cobrador especificado', 403);
+                }
+            } else {
+                // Si no especifica cobrador, verificar acceso directo o indirecto
+                if (!$isDirectlyAssigned && !$isAssignedThroughCobrador) {
+                    return $this->sendError('No autorizado', 'El cliente debe estar asignado directamente a ti o a un cobrador bajo tu supervisión', 403);
+                }
+            }
+        }
+        // Los admins pueden crear créditos para cualquier combinación cliente-cobrador
+
+        // Determinar el estado inicial del crédito
+        $initialStatus = 'active'; // Por defecto para compatibilidad
+        if ($request->has('status')) {
+            $initialStatus = $request->status;
+        } elseif ($currentUser->hasRole('manager') || $currentUser->hasRole('cobrador')) {
+            // Los managers y cobradores crean créditos en lista de espera por defecto
+            $initialStatus = 'pending_approval';
         }
 
         $credit = Credit::create([
             'client_id' => $request->client_id,
             'created_by' => $currentUser->id,
             'amount' => $request->amount,
-            'interest_rate' => $request->interest_rate ?? 0, // Asignar tasa de interés si se proporciona
-            'total_amount' => $request->total_amount ?? $request->amount, // Asignar monto total si se proporciona
+            'interest_rate' => $request->interest_rate ?? 0,
+            'total_amount' => $request->total_amount ?? $request->amount,
             'balance' => $request->balance,
-            'installment_amount' => $request->installment_amount ?? ($request->amount / 1), // Asignar monto de la cuota si se proporciona
+            'installment_amount' => $request->installment_amount ?? ($request->amount / 1),
             'frequency' => $request->frequency,
             'start_date' => $request->start_date,
             'end_date' => $request->end_date,
-            'status' => $request->status ?? 'active',
+            'status' => $initialStatus,
+            'scheduled_delivery_date' => $request->scheduled_delivery_date, // Para managers
         ]);
 
         $credit->load(['client', 'payments', 'createdBy']);
 
-        return $this->sendResponse($credit, 'Crédito creado exitosamente');
+        // Disparar evento si el crédito fue creado en lista de espera
+        if ($initialStatus === 'pending_approval') {
+            event(new \App\Events\CreditWaitingListUpdate($credit, 'created', $currentUser));
+        }
+
+        $message = 'Crédito creado exitosamente';
+        if ($initialStatus === 'pending_approval') {
+            $message .= ' (en lista de espera para aprobación)';
+        }
+
+        return $this->sendResponse($credit, $message);
+    }
+
+    /**
+     * Store a credit directly in waiting list (for managers).
+     */
+    public function storeInWaitingList(Request $request)
+    {
+        $request->validate([
+            'client_id' => 'required|exists:users,id',
+            'cobrador_id' => 'required|exists:users,id',
+            'amount' => 'required|numeric|min:0',
+            'interest_rate' => 'nullable|numeric|min:0|max:100',
+            'frequency' => 'required|in:daily,weekly,biweekly,monthly',
+            'installment_amount' => 'nullable|numeric|min:0',
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after:start_date',
+            'scheduled_delivery_date' => 'nullable|date|after:now',
+            'notes' => 'nullable|string|max:1000',
+        ]);
+
+        $currentUser = Auth::user();
+        
+        // Solo managers y admins pueden usar este endpoint
+        if (!$currentUser->hasRole(['manager', 'admin'])) {
+            return $this->sendError('No autorizado', 'Solo managers y administradores pueden crear créditos en lista de espera', 403);
+        }
+        
+        // Verificar que el cliente y cobrador existan y tengan los roles correctos
+        $client = User::findOrFail($request->client_id);
+        $cobrador = User::findOrFail($request->cobrador_id);
+        
+        if (!$client->hasRole('client')) {
+            return $this->sendError('Cliente no válido', 'El usuario especificado no es un cliente', 400);
+        }
+        
+        if (!$cobrador->hasRole('cobrador')) {
+            return $this->sendError('Cobrador no válido', 'El usuario especificado no es un cobrador', 400);
+        }
+        
+        // Verificar permisos del manager
+        if ($currentUser->hasRole('manager')) {
+            // El cobrador debe estar asignado al manager
+            if ($cobrador->assigned_manager_id !== $currentUser->id) {
+                return $this->sendError('No autorizado', 'El cobrador no está asignado a tu gestión', 403);
+            }
+            
+            // El cliente debe estar asignado al cobrador
+            if ($client->assigned_cobrador_id !== $cobrador->id) {
+                return $this->sendError('No autorizado', 'El cliente no está asignado al cobrador especificado', 403);
+            }
+        }
+
+        // Calcular valores derivados
+        $interestRate = $request->interest_rate ?? 0;
+        $totalAmount = $request->amount * (1 + ($interestRate / 100));
+        $installmentAmount = $request->installment_amount ?? $this->calculateInstallmentAmount(
+            $totalAmount, 
+            $request->frequency, 
+            $request->start_date, 
+            $request->end_date
+        );
+
+        $credit = Credit::create([
+            'client_id' => $request->client_id,
+            'created_by' => $currentUser->id,
+            'amount' => $request->amount,
+            'interest_rate' => $interestRate,
+            'total_amount' => $totalAmount,
+            'balance' => $totalAmount,
+            'installment_amount' => $installmentAmount,
+            'frequency' => $request->frequency,
+            'start_date' => $request->start_date,
+            'end_date' => $request->end_date,
+            'status' => 'pending_approval',
+            'scheduled_delivery_date' => $request->scheduled_delivery_date,
+            'delivery_notes' => $request->notes,
+        ]);
+
+        $credit->load(['client', 'createdBy']);
+
+        // Disparar evento para notificaciones
+        event(new \App\Events\CreditWaitingListUpdate($credit, 'created', $currentUser));
+
+        return $this->sendResponse([
+            'credit' => $credit,
+            'delivery_status' => $credit->getDeliveryStatusInfo(),
+            'cobrador' => [
+                'id' => $cobrador->id,
+                'name' => $cobrador->name,
+                'email' => $cobrador->email,
+                'phone' => $cobrador->phone,
+            ]
+        ], 'Crédito creado en lista de espera exitosamente');
+    }
+
+    /**
+     * Helper method to calculate installment amount based on frequency.
+     */
+    private function calculateInstallmentAmount($totalAmount, $frequency, $startDate, $endDate)
+    {
+        $start = new \DateTime($startDate);
+        $end = new \DateTime($endDate);
+        $interval = $start->diff($end);
+        
+        switch ($frequency) {
+            case 'daily':
+                $totalPeriods = $interval->days;
+                break;
+            case 'weekly':
+                $totalPeriods = floor($interval->days / 7);
+                break;
+            case 'biweekly':
+                $totalPeriods = floor($interval->days / 14);
+                break;
+            case 'monthly':
+                $totalPeriods = ($interval->y * 12) + $interval->m;
+                break;
+            default:
+                $totalPeriods = 1;
+        }
+        
+        return $totalPeriods > 0 ? round($totalAmount / $totalPeriods, 2) : $totalAmount;
     }
 
     /**

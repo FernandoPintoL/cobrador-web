@@ -27,6 +27,11 @@ class EventServiceProvider extends ServiceProvider
         \App\Events\PaymentReceived::class => [
             \App\Listeners\SendPaymentReceivedNotification::class,
         ],
+        
+        // Credit Waiting List Events
+        \App\Events\CreditWaitingListUpdate::class => [
+            \App\Listeners\SendCreditWaitingListNotification::class,
+        ],
     ];
 
     /**

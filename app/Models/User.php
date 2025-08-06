@@ -33,6 +33,7 @@ class User extends Authenticatable
         'latitude',
         'longitude',
         'assigned_cobrador_id',
+        'assigned_manager_id',
     ];
 
     /**
@@ -82,6 +83,40 @@ class User extends Authenticatable
     public function assignedCobrador(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_cobrador_id');
+    }
+
+    /**
+     * Get the cobradores assigned to this manager.
+     */
+    public function assignedCobradores(): HasMany
+    {
+        return $this->hasMany(User::class, 'assigned_manager_id');
+    }
+
+    /**
+     * Get the manager assigned to this cobrador.
+     */
+    public function assignedManager(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_manager_id');
+    }
+
+    /**
+     * Get the clients assigned directly to this manager.
+     */
+    public function assignedClientsDirectly(): HasMany
+    {
+        return $this->hasMany(User::class, 'assigned_manager_id')->whereHas('roles', function($q) {
+            $q->where('name', 'client');
+        });
+    }
+
+    /**
+     * Get the manager assigned directly to this client.
+     */
+    public function assignedManagerDirectly(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_manager_id');
     }
 
     /**

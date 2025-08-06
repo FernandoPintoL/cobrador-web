@@ -66,21 +66,37 @@ class UserController extends BaseController
         $validationRules = [
             'name' => 'required|string|max:255',
             'password' => 'nullable|string|min:8',
-            'phone' => 'nullable|string|max:20|unique:users,phone',
             'address' => 'nullable|string',
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'roles' => 'required|array|min:1',
             'roles.*' => 'string|in:admin,manager,cobrador,client',
         ];
         
-        // Si solo es cliente, el email es opcional
+        // Determinar si está creando un cobrador
+        $isCreatingCobrador = in_array('cobrador', $requestedRoles);
+        
+        // Si solo es cliente, el email y phone son opcionales
         if ($isOnlyClient) {
             $validationRules['email'] = 'nullable|string|email|max:255|unique:users,email';
+            $validationRules['phone'] = 'nullable|string|max:20|unique:users,phone';
+        } elseif ($isCreatingCobrador) {
+            // Para cobradores: email o phone debe ser proporcionado (para login)
+            $validationRules['email'] = 'nullable|string|email|max:255|unique:users,email';
+            $validationRules['phone'] = 'nullable|string|max:20|unique:users,phone';
         } else {
+            // Para otros roles (admin, manager), email es requerido
             $validationRules['email'] = 'required|string|email|max:255|unique:users,email';
+            $validationRules['phone'] = 'nullable|string|max:20|unique:users,phone';
         }
         
         $request->validate($validationRules);
+
+        // Validación adicional para cobradores: al menos email o phone debe estar presente
+        if ($isCreatingCobrador) {
+            if (!$request->filled('email') && !$request->filled('phone')) {
+                return $this->sendError('Campos requeridos', 'Para cobradores, se requiere al menos email o teléfono para el inicio de sesión.', 400);
+            }
+        }
 
         // Obtener el usuario autenticado
         $currentUser = Auth::user();
@@ -105,13 +121,25 @@ class UserController extends BaseController
 
         $userData = [
             'name' => $request->name,
-            'phone' => $request->phone,
             'address' => $request->address,
         ];
+
+        if($isCreatingCobrador && $currentUser->hasRole('manager')){
+            $userData['assigned_manager_id'] = $currentUser->id; // Asignar el ID del manager
+        }
+
+        if($isOnlyClient && $currentUser->hasRole('cobrador')){
+            $userData['assigned_cobrador_id'] = $currentUser->id; // Asignar el ID del cobrador
+        }
         
         // Solo agregar email si se proporciona
         if ($request->filled('email')) {
             $userData['email'] = $request->email;
+        }
+
+        // Agregar teléfono si se proporciona
+        if ($request->filled('phone')) {
+            $userData['phone'] = $request->phone;
         }
 
         // Manejar la contraseña
@@ -431,5 +459,209 @@ class UserController extends BaseController
         $cobrador->load('roles', 'permissions');
 
         return $this->sendResponse($cobrador, "Cobrador asignado al cliente {$client->name} obtenido exitosamente");
+    }
+
+    /**
+     * Get cobradores assigned to a specific manager.
+     */
+    public function getCobradoresByManager(Request $request, User $manager)
+    {
+        // Verificar que el usuario sea un manager
+        if (!$manager->hasRole('manager')) {
+            return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
+        }
+
+        $cobradores = $manager->assignedCobradores()
+            ->with(['roles', 'permissions'])
+            ->when($request->search, function ($query, $search) {
+                $query->where('name', 'like', "%{$search}%")
+                      ->orWhere('email', 'like', "%{$search}%");
+            })
+            ->orderBy('name', 'asc')
+            ->paginate($request->get('per_page', 15));
+
+        return $this->sendResponse($cobradores, "Cobradores asignados al manager {$manager->name} obtenidos exitosamente");
+    }
+
+    /**
+     * Assign cobradores to a manager.
+     */
+    public function assignCobradoresToManager(Request $request, User $manager)
+    {
+        $request->validate([
+            'cobrador_ids' => 'required|array|min:1',
+            'cobrador_ids.*' => 'integer|exists:users,id',
+        ]);
+
+        // Verificar que el usuario sea un manager
+        if (!$manager->hasRole('manager')) {
+            return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
+        }
+
+        // Obtener los cobradores
+        $cobradores = User::whereIn('id', $request->cobrador_ids)
+            ->whereHas('roles', function ($query) {
+                $query->where('name', 'cobrador');
+            })
+            ->get();
+
+        if ($cobradores->isEmpty()) {
+            return $this->sendError('Cobradores no válidos', 'No se encontraron cobradores válidos para asignar', 400);
+        }
+
+        // Asignar cobradores al manager
+        foreach ($cobradores as $cobrador) {
+            $cobrador->update(['assigned_manager_id' => $manager->id]);
+        }
+
+        $cobradores->load('roles', 'permissions');
+
+        return $this->sendResponse($cobradores, "Se asignaron {$cobradores->count()} cobradores al manager {$manager->name} exitosamente");
+    }
+
+    /**
+     * Remove cobrador assignment from manager.
+     */
+    public function removeCobradorFromManager(Request $request, User $manager, User $cobrador)
+    {
+        // Verificar que el usuario sea un manager
+        if (!$manager->hasRole('manager')) {
+            return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
+        }
+
+        // Verificar que el cobrador esté asignado al manager
+        if ($cobrador->assigned_manager_id !== $manager->id) {
+            return $this->sendError('Asignación no válida', 'El cobrador no está asignado a este manager', 400);
+        }
+
+        // Remover asignación
+        $cobrador->update(['assigned_manager_id' => null]);
+
+        $cobrador->load('roles', 'permissions');
+
+        return $this->sendResponse($cobrador, "Cobrador {$cobrador->name} removido del manager {$manager->name} exitosamente");
+    }
+
+    /**
+     * Get manager assigned to a cobrador.
+     */
+    public function getManagerByCobrador(User $cobrador)
+    {
+        // Verificar que el usuario sea un cobrador
+        if (!$cobrador->hasRole('cobrador')) {
+            return $this->sendError('Usuario no válido', 'El usuario especificado no es un cobrador', 400);
+        }
+
+        $manager = $cobrador->assignedManager;
+
+        if (!$manager) {
+            return $this->sendResponse(null, 'El cobrador no tiene un manager asignado');
+        }
+
+        $manager->load('roles', 'permissions');
+
+        return $this->sendResponse($manager, "Manager asignado al cobrador {$cobrador->name} obtenido exitosamente");
+    }
+
+    /**
+     * Get clients assigned directly to a specific manager.
+     */
+    public function getClientsByManager(Request $request, User $manager)
+    {
+        // Verificar que el usuario sea un manager
+        if (!$manager->hasRole('manager')) {
+            return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
+        }
+
+        $clients = $manager->assignedClientsDirectly()
+            ->with(['roles', 'permissions'])
+            ->when($request->search, function ($query, $search) {
+                $query->where('name', 'like', "%{$search}%")
+                      ->orWhere('email', 'like', "%{$search}%");
+            })
+            ->orderBy('name', 'asc')
+            ->paginate($request->get('per_page', 15));
+
+        return $this->sendResponse($clients, "Clientes asignados directamente al manager {$manager->name} obtenidos exitosamente");
+    }
+
+    /**
+     * Assign clients directly to a manager.
+     */
+    public function assignClientsToManager(Request $request, User $manager)
+    {
+        $request->validate([
+            'client_ids' => 'required|array|min:1',
+            'client_ids.*' => 'integer|exists:users,id',
+        ]);
+
+        // Verificar que el usuario sea un manager
+        if (!$manager->hasRole('manager')) {
+            return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
+        }
+
+        // Obtener los clientes
+        $clients = User::whereIn('id', $request->client_ids)
+            ->whereHas('roles', function ($query) {
+                $query->where('name', 'client');
+            })
+            ->get();
+
+        if ($clients->isEmpty()) {
+            return $this->sendError('Clientes no válidos', 'No se encontraron clientes válidos para asignar', 400);
+        }
+
+        // Asignar clientes al manager
+        foreach ($clients as $client) {
+            $client->update(['assigned_manager_id' => $manager->id]);
+        }
+
+        $clients->load('roles', 'permissions');
+
+        return $this->sendResponse($clients, "Se asignaron {$clients->count()} clientes directamente al manager {$manager->name} exitosamente");
+    }
+
+    /**
+     * Remove client assignment from manager.
+     */
+    public function removeClientFromManager(Request $request, User $manager, User $client)
+    {
+        // Verificar que el usuario sea un manager
+        if (!$manager->hasRole('manager')) {
+            return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
+        }
+
+        // Verificar que el cliente esté asignado al manager
+        if ($client->assigned_manager_id !== $manager->id) {
+            return $this->sendError('Asignación no válida', 'El cliente no está asignado directamente a este manager', 400);
+        }
+
+        // Remover asignación
+        $client->update(['assigned_manager_id' => null]);
+
+        $client->load('roles', 'permissions');
+
+        return $this->sendResponse($client, "Cliente {$client->name} removido del manager {$manager->name} exitosamente");
+    }
+
+    /**
+     * Get manager assigned directly to a client.
+     */
+    public function getManagerByClient(User $client)
+    {
+        // Verificar que el usuario sea un cliente
+        if (!$client->hasRole('client')) {
+            return $this->sendError('Usuario no válido', 'El usuario especificado no es un cliente', 400);
+        }
+
+        $manager = $client->assignedManagerDirectly;
+
+        if (!$manager) {
+            return $this->sendResponse(null, 'El cliente no tiene un manager asignado directamente');
+        }
+
+        $manager->load('roles', 'permissions');
+
+        return $this->sendResponse($manager, "Manager asignado directamente al cliente {$client->name} obtenido exitosamente");
     }
 } 

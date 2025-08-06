@@ -58,6 +58,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/users/{cobrador}/assign-clients', [UserController::class, 'assignClientsToCobrador'])->name('api.users.cobrador.assign-clients');
     Route::delete('/users/{cobrador}/clients/{client}', [UserController::class, 'removeClientFromCobrador'])->name('api.users.cobrador.remove-client');
     Route::get('/users/{client}/cobrador', [UserController::class, 'getCobradorByClient'])->name('api.users.client.cobrador');
+    
+    // Rutas para asignación de cobradores a managers
+    Route::get('/users/{manager}/cobradores', [UserController::class, 'getCobradoresByManager'])->name('api.users.manager.cobradores');
+    Route::post('/users/{manager}/assign-cobradores', [UserController::class, 'assignCobradoresToManager'])->name('api.users.manager.assign-cobradores');
+    Route::delete('/users/{manager}/cobradores/{cobrador}', [UserController::class, 'removeCobradorFromManager'])->name('api.users.manager.remove-cobrador');
+    Route::get('/users/{cobrador}/manager', [UserController::class, 'getManagerByCobrador'])->name('api.users.cobrador.manager');
+
+    // Rutas para asignación directa de clientes a managers
+    Route::get('/users/{manager}/clients-direct', [UserController::class, 'getClientsByManager'])->name('api.users.manager.clients-direct');
+    Route::post('/users/{manager}/assign-clients-direct', [UserController::class, 'assignClientsToManager'])->name('api.users.manager.assign-clients-direct');
+    Route::delete('/users/{manager}/clients-direct/{client}', [UserController::class, 'removeClientFromManager'])->name('api.users.manager.remove-client-direct');
+    Route::get('/users/{client}/manager-direct', [UserController::class, 'getManagerByClient'])->name('api.users.client.manager-direct');
 
     // Rutas
     Route::apiResource('routes', RouteController::class)->names([
@@ -78,6 +90,7 @@ Route::middleware('auth:sanctum')->group(function () {
         'update' => 'api.credits.update',
         'destroy' => 'api.credits.destroy',
     ]);
+    Route::post('/credits/waiting-list', [CreditController::class, 'storeInWaitingList'])->name('api.credits.store-waiting-list');
     Route::get('/credits/client/{client}', [CreditController::class, 'getByClient'])->name('api.credits.by-client');
     Route::get('/credits/{credit}/remaining-installments', [CreditController::class, 'getRemainingInstallments'])->name('api.credits.remaining-installments');
     Route::get('/credits/cobrador/{cobrador}', [CreditController::class, 'getByCobrador'])->name('api.credits.by-cobrador');
