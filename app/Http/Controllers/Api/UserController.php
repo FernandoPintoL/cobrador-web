@@ -58,6 +58,7 @@ class UserController extends BaseController
      */
     public function store(Request $request)
     {
+        //return $request->all(); Debugging line to check request data
         // Determinar si solo se está creando un cliente
         $requestedRoles = $request->get('roles', []);
         $isOnlyClient = count($requestedRoles) === 1 && in_array('client', $requestedRoles);
@@ -70,6 +71,11 @@ class UserController extends BaseController
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'roles' => 'required|array|min:1',
             'roles.*' => 'string|in:admin,manager,cobrador,client',
+            'location' => 'nullable|array',
+            'location.type' => 'nullable|string|in:Point',
+            'location.coordinates' => 'nullable|array|size:2',
+            'location.coordinates.0' => 'nullable|numeric|between:-180,180', // longitude
+            'location.coordinates.1' => 'nullable|numeric|between:-90,90',   // latitude
         ];
         
         // Determinar si está creando un cobrador
@@ -124,11 +130,23 @@ class UserController extends BaseController
             'address' => $request->address,
         ];
 
-        if($isCreatingCobrador && $currentUser->hasRole('manager')){
+        // Procesar ubicación GeoJSON si se proporciona
+        if ($request->has('location') && $request->location) {
+            $location = $request->location;
+            if (isset($location['type']) && $location['type'] === 'Point' && 
+                isset($location['coordinates']) && is_array($location['coordinates']) && 
+                count($location['coordinates']) === 2) {
+                
+                $userData['longitude'] = $location['coordinates'][0]; // longitude es el primer elemento
+                $userData['latitude'] = $location['coordinates'][1];  // latitude es el segundo elemento
+            }
+        }
+
+        if($currentUser->hasRole('manager') && ($isCreatingCobrador || $isOnlyClient) ){
             $userData['assigned_manager_id'] = $currentUser->id; // Asignar el ID del manager
         }
 
-        if($isOnlyClient && $currentUser->hasRole('cobrador')){
+        if($currentUser->hasRole('cobrador') && $isOnlyClient){
             $userData['assigned_cobrador_id'] = $currentUser->id; // Asignar el ID del cobrador
         }
         
@@ -215,6 +233,11 @@ class UserController extends BaseController
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'roles' => 'array',
             'roles.*' => 'exists:roles,name',
+            'location' => 'nullable|array',
+            'location.type' => 'nullable|string|in:Point',
+            'location.coordinates' => 'nullable|array|size:2',
+            'location.coordinates.0' => 'nullable|numeric|between:-180,180', // longitude
+            'location.coordinates.1' => 'nullable|numeric|between:-90,90',   // latitude
         ];
         
         // Si solo es cliente, el email es opcional
@@ -235,6 +258,18 @@ class UserController extends BaseController
         // Solo agregar email si se proporciona
         if ($request->filled('email')) {
             $userData['email'] = $request->email;
+        }
+
+        // Procesar ubicación GeoJSON si se proporciona
+        if ($request->has('location') && $request->location) {
+            $location = $request->location;
+            if (isset($location['type']) && $location['type'] === 'Point' && 
+                isset($location['coordinates']) && is_array($location['coordinates']) && 
+                count($location['coordinates']) === 2) {
+                
+                $userData['longitude'] = $location['coordinates'][0]; // longitude es el primer elemento
+                $userData['latitude'] = $location['coordinates'][1];  // latitude es el segundo elemento
+            }
         }
 
         // Manejar la subida de imagen de perfil
@@ -388,8 +423,7 @@ class UserController extends BaseController
     /**
      * Assign clients to a cobrador.
      */
-    public function assignClientsToCobrador(Request $request, User $cobrador)
-    {
+    public function assignClientsToCobrador(Request $request, User $cobrador){
         $request->validate([
             'client_ids' => 'required|array|min:1',
             'client_ids.*' => 'integer|exists:users,id',
@@ -471,7 +505,11 @@ class UserController extends BaseController
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
         }
 
-        $cobradores = $manager->assignedCobradores()
+        // Obtener solo usuarios con rol 'cobrador' asignados a este manager
+        $cobradores = User::whereHas('roles', function ($query) {
+                $query->where('name', 'cobrador');
+            })
+            ->where('assigned_manager_id', $manager->id)
             ->with(['roles', 'permissions'])
             ->when($request->search, function ($query, $search) {
                 $query->where('name', 'like', "%{$search}%")
@@ -561,6 +599,66 @@ class UserController extends BaseController
         $manager->load('roles', 'permissions');
 
         return $this->sendResponse($manager, "Manager asignado al cobrador {$cobrador->name} obtenido exitosamente");
+    }
+
+    /**
+     * Get all clients assigned to a specific manager (directly + through cobradores).
+     */
+    public function getAllClientsByManager(Request $request, User $manager)
+    {
+        // Verificar que el usuario sea un manager
+        if (!$manager->hasRole('manager')) {
+            return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
+        }
+
+        // Obtener todos los clientes del manager:
+        // 1. Clientes asignados directamente al manager
+        // 2. Clientes asignados a cobradores que están asignados al manager
+        $directClients = $manager->assignedClientsDirectly();
+        
+        // Obtener IDs de cobradores asignados al manager (filtrar por rol cobrador)
+        $cobradorIds = User::whereHas('roles', function ($query) {
+                $query->where('name', 'cobrador');
+            })
+            ->where('assigned_manager_id', $manager->id)
+            ->pluck('id');
+        
+        // Obtener clientes asignados a esos cobradores
+        $cobradorClientsQuery = User::whereHas('roles', function ($query) {
+                $query->where('name', 'client');
+            })
+            ->whereIn('assigned_cobrador_id', $cobradorIds);
+
+        // Combinar ambas consultas usando UNION
+        $allClients = User::whereHas('roles', function ($query) {
+                $query->where('name', 'client');
+            })
+            // Excluir usuarios que tengan rol de manager para evitar conflictos
+            ->whereDoesntHave('roles', function ($query) {
+                $query->where('name', 'manager');
+            })
+            ->where(function ($query) use ($manager, $cobradorIds) {
+                $query->where('assigned_manager_id', $manager->id) // Clientes directos del manager
+                      ->orWhereIn('assigned_cobrador_id', $cobradorIds); // Clientes de cobradores del manager
+            })
+            ->with(['roles', 'permissions', 'assignedCobrador', 'assignedManagerDirectly'])
+            ->when($request->search, function ($query, $search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('email', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy('name', 'asc')
+            ->paginate($request->get('per_page', 15));
+
+        // Agregar información adicional sobre la asignación
+        $allClients->getCollection()->transform(function ($client) {
+            $client->assignment_type = $client->assigned_manager_id ? 'direct' : 'through_cobrador';
+            $client->cobrador_name = $client->assignedCobrador ? $client->assignedCobrador->name : null;
+            return $client;
+        });
+
+        return $this->sendResponse($allClients, "Todos los clientes del manager {$manager->name} obtenidos exitosamente");
     }
 
     /**

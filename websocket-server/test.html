@@ -78,6 +78,14 @@
     <h1>🔌 Test WebSocket - Cobrador</h1>
 
     <div class="container">
+        <h3>Información del Servidor</h3>
+        <p><strong>URL del Servidor:</strong> <span id="serverUrl">Detectando...</span></p>
+        <p><strong>Protocolo:</strong> <span id="protocol">-</span></p>
+        <p><strong>Entorno:</strong> <span id="environment">-</span></p>
+        <p><strong>Socket ID:</strong> <span id="socketId">-</span></p>
+    </div>
+
+    <div class="container">
         <h3>Estado de Conexión</h3>
         <div id="status" class="status disconnected">Desconectado</div>
 
@@ -126,18 +134,55 @@
         let socket = null;
         let currentUserId = null;
 
+        // Detectar configuración del servidor al cargar la página
+        window.onload = function () {
+            updateServerInfo();
+        };
+
+        function updateServerInfo() {
+            const isProduction = window.location.protocol === 'https:';
+            const serverUrl = isProduction
+                ? window.location.origin
+                : 'http://localhost:3001';
+
+            document.getElementById('serverUrl').textContent = serverUrl;
+            document.getElementById('protocol').textContent = isProduction ? 'HTTPS/WSS (Seguro)' : 'HTTP/WS (Desarrollo)';
+            document.getElementById('environment').textContent = isProduction ? 'Producción' : 'Desarrollo';
+        }
+
         // Conectar al servidor WebSocket
         function connectSocket() {
-            socket = io('http://localhost:3001');
+            // Detectar automáticamente si estamos en producción o desarrollo
+            const isProduction = window.location.protocol === 'https:';
+            const serverUrl = isProduction
+                ? window.location.origin  // En producción, usar el mismo dominio
+                : 'http://localhost:3001'; // En desarrollo local
+
+            console.log(`🔌 Conectando a: ${serverUrl}`);
+            addMessage(`🔌 Intentando conectar a: ${serverUrl}`, 'info');
+
+            socket = io(serverUrl, {
+                transports: ['websocket', 'polling'],
+                upgrade: true,
+                rememberUpgrade: true
+            });
 
             socket.on('connect', () => {
                 updateStatus('Conectado', 'connected');
                 addMessage('✅ Conectado al servidor WebSocket', 'info');
+                document.getElementById('socketId').textContent = socket.id;
             });
 
             socket.on('disconnect', () => {
                 updateStatus('Desconectado', 'disconnected');
                 addMessage('❌ Desconectado del servidor', 'info');
+                document.getElementById('socketId').textContent = '-';
+            });
+
+            socket.on('connect_error', (error) => {
+                updateStatus('Error de Conexión', 'disconnected');
+                addMessage(`❌ Error de conexión: ${error.message}`, 'error');
+                console.error('Error de conexión:', error);
             });
 
             socket.on('authenticated', (data) => {

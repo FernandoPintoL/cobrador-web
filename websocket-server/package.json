@@ -7,6 +7,12 @@
     "scripts": {
         "start": "node server.js",
         "dev": "nodemon server.js",
+        "build": "echo 'No build process needed for Node.js' && exit 0",
+        "check": "node check-deployment.js",
+        "deploy": "railway up",
+        "deploy:vars": "railway variables set NODE_ENV=production && railway variables set WEBSOCKET_PORT=3001",
+        "logs": "railway logs --follow",
+        "status": "railway status",
         "test": "echo \"Error: no test specified\" && exit 1"
     },
     "keywords": [

@@ -106,9 +106,13 @@ class User extends Authenticatable
      */
     public function assignedClientsDirectly(): HasMany
     {
-        return $this->hasMany(User::class, 'assigned_manager_id')->whereHas('roles', function($q) {
-            $q->where('name', 'client');
-        });
+        return $this->hasMany(User::class, 'assigned_manager_id')
+            ->whereHas('roles', function($q) {
+                $q->where('name', 'client');
+            })
+            ->whereDoesntHave('roles', function($q) {
+                $q->where('name', 'manager');
+            });
     }
 
     /**

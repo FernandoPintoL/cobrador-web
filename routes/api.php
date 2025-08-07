@@ -67,6 +67,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Rutas para asignación directa de clientes a managers
     Route::get('/users/{manager}/clients-direct', [UserController::class, 'getClientsByManager'])->name('api.users.manager.clients-direct');
+    Route::get('/users/{manager}/manager-clients', [UserController::class, 'getAllClientsByManager'])->name('api.users.manager.clients'); // Nueva ruta
     Route::post('/users/{manager}/assign-clients-direct', [UserController::class, 'assignClientsToManager'])->name('api.users.manager.assign-clients-direct');
     Route::delete('/users/{manager}/clients-direct/{client}', [UserController::class, 'removeClientFromManager'])->name('api.users.manager.remove-client-direct');
     Route::get('/users/{client}/manager-direct', [UserController::class, 'getManagerByClient'])->name('api.users.client.manager-direct');
