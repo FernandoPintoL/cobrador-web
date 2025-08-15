@@ -8,7 +8,7 @@ Route::get('/', function () {
 })->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('dashboard', function () {
+    /*Route::get('dashboard', function () {
         return Inertia::render('dashboard');
     })->name('dashboard');
 
@@ -121,7 +121,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('notifications/{notification}/edit', function ($notification) {
         return Inertia::render('notifications/edit', ['notification' => $notification]);
-    })->name('notifications.edit');
+    })->name('notifications.edit');*/
 });
 
 require __DIR__.'/settings.php';
