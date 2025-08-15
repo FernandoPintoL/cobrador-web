@@ -37,7 +37,7 @@ class NotificationController extends BaseController
         $request->validate([
             'user_id' => 'required|exists:users,id',
             'payment_id' => 'nullable|exists:payments,id',
-            'type' => 'required|in:payment_received,payment_due,credit_approved,credit_rejected,system_alert',
+            'type' => 'required|in:payment_received,payment_due,credit_approved,credit_rejected,system_alert,cobrador_payment_received',
             'message' => 'required|string',
             'status' => 'in:unread,read,archived',
         ]);

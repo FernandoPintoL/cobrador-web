@@ -18,14 +18,22 @@ class PaymentReceived implements ShouldBroadcast
 
     public $payment;
     public $cobrador;
+    public $manager;
+    public $client;
 
     /**
      * Create a new event instance.
      */
-    public function __construct(Payment $payment, User $cobrador)
+    public function __construct(Payment $payment)
     {
-        $this->payment = $payment;
-        $this->cobrador = $cobrador;
+        $this->payment = $payment->load(['credit.client', 'receivedBy']);
+        $this->client = $this->payment->credit->client;
+        $this->cobrador = $this->payment->receivedBy;
+
+        // Obtener el manager del cobrador
+        if ($this->cobrador && $this->cobrador->hasRole('cobrador')) {
+            $this->manager = User::find($this->cobrador->assigned_manager_id);
+        }
     }
 
     /**
@@ -33,10 +41,26 @@ class PaymentReceived implements ShouldBroadcast
      */
     public function broadcastOn(): array
     {
-        return [
-            new PrivateChannel('cobrador.' . $this->cobrador->id),
-            new Channel('payments.received')
+        $channels = [
+            new PrivateChannel('payments'),
         ];
+
+        // Canal del cobrador que recibió el pago
+        if ($this->cobrador) {
+            $channels[] = new PrivateChannel('user.' . $this->cobrador->id);
+        }
+
+        // Canal del manager del cobrador
+        if ($this->manager) {
+            $channels[] = new PrivateChannel('user.' . $this->manager->id);
+        }
+
+        // Canal del cliente
+        if ($this->client) {
+            $channels[] = new PrivateChannel('user.' . $this->client->id);
+        }
+
+        return $channels;
     }
 
     /**
@@ -45,25 +69,39 @@ class PaymentReceived implements ShouldBroadcast
     public function broadcastWith(): array
     {
         return [
-            'payment_id' => $this->payment->id,
-            'credit_id' => $this->payment->credit_id,
-            'client_id' => $this->payment->credit->client_id,
-            'client_name' => $this->payment->credit->client->name,
-            'amount' => $this->payment->amount,
-            'payment_date' => $this->payment->payment_date->format('Y-m-d'),
-            'payment_method' => $this->payment->payment_method,
-            'cobrador_id' => $this->cobrador->id,
-            'remaining_balance' => $this->payment->credit->total_amount - $this->payment->credit->payments()->sum('amount'),
-            'installments_paid' => $this->payment->credit->payments()->count(),
-            'type' => 'payment_received',
-            'timestamp' => now()->toISOString()
+            'payment' => [
+                'id' => $this->payment->id,
+                'amount' => $this->payment->amount,
+                'payment_date' => $this->payment->payment_date,
+                'payment_method' => $this->payment->payment_method,
+                'credit_id' => $this->payment->credit_id,
+                'received_by' => $this->payment->received_by,
+            ],
+            'client' => $this->client ? [
+                'id' => $this->client->id,
+                'name' => $this->client->name,
+                'email' => $this->client->email,
+                'phone' => $this->client->phone,
+            ] : null,
+            'cobrador' => $this->cobrador ? [
+                'id' => $this->cobrador->id,
+                'name' => $this->cobrador->name,
+                'email' => $this->cobrador->email,
+                'phone' => $this->cobrador->phone,
+            ] : null,
+            'manager' => $this->manager ? [
+                'id' => $this->manager->id,
+                'name' => $this->manager->name,
+                'email' => $this->manager->email,
+            ] : null,
+            'timestamp' => now()->toISOString(),
         ];
     }
 
     /**
      * The event's broadcast name.
      */
-    public function broadcastAs(): string
+    public function broadcastAs()
     {
         return 'payment.received';
     }

@@ -123,6 +123,202 @@ app.post('/notify', (req, res) => {
     });
 });
 
+// API específica para notificaciones de créditos
+app.post('/credit-notification', (req, res) => {
+    const { action, credit, user, manager, cobrador } = req.body;
+
+    console.log(`🏦 Credit notification received: ${action}`, {
+        creditId: credit?.id,
+        userId: user?.id,
+        managerId: manager?.id,
+        cobradorId: cobrador?.id
+    });
+
+    try {
+        switch (action) {
+            case 'created':
+                // Notificar al manager que un cobrador creó un crédito
+                if (manager) {
+                    const managerSocket = Array.from(activeUsers.entries())
+                        .find(([, userData]) => userData.userId == manager.id);
+
+                    if (managerSocket) {
+                        const [socketId] = managerSocket;
+                        io.to(socketId).emit('credit_waiting_approval', {
+                            type: 'credit_created',
+                            credit: credit,
+                            cobrador: cobrador,
+                            message: `El cobrador ${cobrador.name} ha creado un crédito de $${credit.amount} que requiere aprobación`,
+                            timestamp: new Date().toISOString()
+                        });
+                        console.log(`📨 Credit creation notification sent to manager ${manager.id}`);
+                    }
+                }
+                break;
+
+            case 'approved':
+                // Notificar al cobrador que su crédito fue aprobado
+                if (cobrador) {
+                    const cobradorSocket = Array.from(activeUsers.entries())
+                        .find(([, userData]) => userData.userId == cobrador.id);
+
+                    if (cobradorSocket) {
+                        const [socketId] = cobradorSocket;
+                        io.to(socketId).emit('credit_approved', {
+                            type: 'credit_approved',
+                            credit: credit,
+                            manager: manager,
+                            message: `Tu crédito de $${credit.amount} ha sido aprobado por ${manager.name}`,
+                            timestamp: new Date().toISOString()
+                        });
+                        console.log(`📨 Credit approval notification sent to cobrador ${cobrador.id}`);
+                    }
+                }
+                break;
+
+            case 'rejected':
+                // Notificar al cobrador que su crédito fue rechazado
+                if (cobrador) {
+                    const cobradorSocket = Array.from(activeUsers.entries())
+                        .find(([, userData]) => userData.userId == cobrador.id);
+
+                    if (cobradorSocket) {
+                        const [socketId] = cobradorSocket;
+                        io.to(socketId).emit('credit_rejected', {
+                            type: 'credit_rejected',
+                            credit: credit,
+                            manager: manager,
+                            message: `Tu crédito de $${credit.amount} ha sido rechazado por ${manager.name}`,
+                            timestamp: new Date().toISOString()
+                        });
+                        console.log(`📨 Credit rejection notification sent to cobrador ${cobrador.id}`);
+                    }
+                }
+                break;
+
+            case 'delivered':
+                // Notificar al manager que un crédito fue entregado
+                if (manager) {
+                    const managerSocket = Array.from(activeUsers.entries())
+                        .find(([, userData]) => userData.userId == manager.id);
+
+                    if (managerSocket) {
+                        const [socketId] = managerSocket;
+                        io.to(socketId).emit('credit_delivered', {
+                            type: 'credit_delivered',
+                            credit: credit,
+                            cobrador: cobrador,
+                            message: `El cobrador ${cobrador.name} ha entregado el crédito de $${credit.amount}`,
+                            timestamp: new Date().toISOString()
+                        });
+                        console.log(`📨 Credit delivery notification sent to manager ${manager.id}`);
+                    }
+                }
+                break;
+
+            case 'requires_attention':
+                // Notificar al cobrador que un crédito requiere atención
+                if (cobrador) {
+                    const cobradorSocket = Array.from(activeUsers.entries())
+                        .find(([, userData]) => userData.userId == cobrador.id);
+
+                    if (cobradorSocket) {
+                        const [socketId] = cobradorSocket;
+                        io.to(socketId).emit('credit_attention_required', {
+                            type: 'credit_attention',
+                            credit: credit,
+                            message: `El crédito de $${credit.amount} requiere tu atención`,
+                            timestamp: new Date().toISOString()
+                        });
+                        console.log(`📨 Credit attention notification sent to cobrador ${cobrador.id}`);
+                    }
+                }
+                break;
+
+            default:
+                console.log(`⚠️ Unknown credit action: ${action}`);
+        }
+
+        res.json({
+            success: true,
+            message: 'Credit notification processed',
+            action: action,
+            creditId: credit?.id
+        });
+
+    } catch (error) {
+        console.error('Error processing credit notification:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// API específica para notificaciones de pagos
+app.post('/payment-notification', (req, res) => {
+    const { payment, cobrador, manager, client } = req.body;
+
+    console.log(`💰 Payment notification received`, {
+        paymentId: payment?.id,
+        amount: payment?.amount,
+        cobradorId: cobrador?.id,
+        managerId: manager?.id
+    });
+
+    try {
+        // Notificar al cobrador que recibió un pago
+        if (cobrador) {
+            const cobradorSocket = Array.from(activeUsers.entries())
+                .find(([, userData]) => userData.userId == cobrador.id);
+
+            if (cobradorSocket) {
+                const [socketId] = cobradorSocket;
+                io.to(socketId).emit('payment_received', {
+                    type: 'payment_received',
+                    payment: payment,
+                    client: client,
+                    message: `Has recibido un pago de $${payment.amount} de ${client.name}`,
+                    timestamp: new Date().toISOString()
+                });
+                console.log(`📨 Payment notification sent to cobrador ${cobrador.id}`);
+            }
+        }
+
+        // Notificar al manager sobre el pago recibido por su cobrador
+        if (manager) {
+            const managerSocket = Array.from(activeUsers.entries())
+                .find(([, userData]) => userData.userId == manager.id);
+
+            if (managerSocket) {
+                const [socketId] = managerSocket;
+                io.to(socketId).emit('cobrador_payment_received', {
+                    type: 'cobrador_payment_received',
+                    payment: payment,
+                    cobrador: cobrador,
+                    client: client,
+                    message: `El cobrador ${cobrador.name} recibió un pago de $${payment.amount} de ${client.name}`,
+                    timestamp: new Date().toISOString()
+                });
+                console.log(`📨 Cobrador payment notification sent to manager ${manager.id}`);
+            }
+        }
+
+        res.json({
+            success: true,
+            message: 'Payment notification processed',
+            paymentId: payment?.id
+        });
+
+    } catch (error) {
+        console.error('Error processing payment notification:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 // Eventos de Socket.IO
 io.on('connection', (socket) => {
     console.log(`Usuario conectado: ${socket.id}`);
@@ -146,8 +342,12 @@ io.on('connection', (socket) => {
                 socket.join('cobradores');
             } else if (userType === 'client') {
                 socket.join('clients');
+            } else if (userType === 'manager') {
+                socket.join('managers');
+                socket.join('admins'); // Los managers también reciben notificaciones de admin
             } else if (userType === 'admin') {
                 socket.join('admins');
+                socket.join('managers'); // Los admins también reciben notificaciones de managers
                 socket.join('cobradores'); // Los admins también reciben notificaciones de cobradores
             }
 
@@ -159,7 +359,9 @@ io.on('connection', (socket) => {
             // Confirmar autenticación
             socket.emit('authenticated', {
                 success: true,
-                message: 'Autenticación exitosa'
+                message: 'Autenticación exitosa',
+                userId: userId,
+                userType: userType
             });
 
             // Notificar a otros usuarios sobre la conexión (opcional)
@@ -176,7 +378,57 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Evento para enviar notificaciones de créditos
+    // Evento mejorado para gestión completa de créditos
+    socket.on('credit_lifecycle', (data) => {
+        const { action, creditId, targetUserId, credit, userType, message } = data;
+        const user = activeUsers.get(socket.id);
+
+        console.log(`🏦 Credit lifecycle event: ${action}`, {
+            creditId,
+            from: user?.userName,
+            targetUserId
+        });
+
+        const notificationData = {
+            action: action,
+            creditId: creditId,
+            credit: credit,
+            message: message,
+            timestamp: new Date().toISOString(),
+            from: user ? { id: user.userId, name: user.userName, type: user.userType } : null
+        };
+
+        // Enviar a usuario específico
+        if (targetUserId) {
+            io.to(`user_${targetUserId}`).emit('credit_lifecycle_update', notificationData);
+            console.log(`📨 Credit lifecycle sent to user ${targetUserId}`);
+        }
+
+        // Enviar a grupos según el tipo de acción
+        switch (action) {
+            case 'created':
+                // Notificar a managers cuando se crea un crédito
+                io.to('managers').emit('credit_pending_approval', notificationData);
+                break;
+            case 'approved':
+            case 'rejected':
+                // Notificar al cobrador sobre decisión del manager
+                if (userType === 'cobrador') {
+                    io.to(`user_${targetUserId}`).emit('credit_decision', notificationData);
+                }
+                break;
+            case 'delivered':
+                // Notificar a managers cuando se entrega un crédito
+                io.to('managers').emit('credit_delivered_notification', notificationData);
+                break;
+            case 'requires_attention':
+                // Notificar al cobrador específico
+                io.to(`user_${targetUserId}`).emit('credit_attention_required', notificationData);
+                break;
+        }
+    });
+
+    // Evento para enviar notificaciones de créditos (mantenido para compatibilidad)
     socket.on('credit_notification', (data) => {
         const { targetUserId, notification, userType } = data;
 
@@ -189,6 +441,8 @@ io.on('connection', (socket) => {
         if (userType) {
             if (userType === 'cobrador') {
                 io.to('cobradores').emit('new_credit_notification', notification);
+            } else if (userType === 'manager') {
+                io.to('managers').emit('new_credit_notification', notification);
             } else if (userType === 'admin') {
                 io.to('admins').emit('new_credit_notification', notification);
             }

@@ -51,7 +51,7 @@ class WebSocketNotificationService
                 ]);
                 return true;
             } else {
-                Log::error('Failed to send WebSocket notification', [
+                Log::warning('WebSocket notification failed', [
                     'url' => $url,
                     'status' => $response->status(),
                     'response' => $response->body()
@@ -60,8 +60,141 @@ class WebSocketNotificationService
             }
         } catch (Exception $e) {
             Log::error('WebSocket notification error', [
-                'message' => $e->getMessage(),
+                'url' => $this->getServerUrl() . $this->endpoint,
+                'error' => $e->getMessage(),
                 'data' => $data
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Send credit lifecycle notification
+     */
+    public function sendCreditNotification($credit, $action, $user, $manager = null, $cobrador = null)
+    {
+        try {
+            $url = $this->getServerUrl() . '/credit-notification';
+            
+            $payload = [
+                'action' => $action,
+                'credit' => [
+                    'id' => $credit->id,
+                    'amount' => $credit->amount,
+                    'total_amount' => $credit->total_amount,
+                    'status' => $credit->status,
+                    'client_name' => $credit->client->name ?? 'Cliente desconocido'
+                ],
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'type' => $user->getRoleNames()->first()
+                ]
+            ];
+
+            // Agregar información del manager si está disponible
+            if ($manager) {
+                $payload['manager'] = [
+                    'id' => $manager->id,
+                    'name' => $manager->name,
+                    'type' => 'manager'
+                ];
+            }
+
+            // Agregar información del cobrador si está disponible
+            if ($cobrador) {
+                $payload['cobrador'] = [
+                    'id' => $cobrador->id,
+                    'name' => $cobrador->name,
+                    'type' => 'cobrador'
+                ];
+            }
+
+            $response = Http::timeout(10)->post($url, $payload);
+
+            if ($response->successful()) {
+                Log::info('Credit WebSocket notification sent successfully', [
+                    'action' => $action,
+                    'credit_id' => $credit->id,
+                    'user_id' => $user->id
+                ]);
+                return true;
+            } else {
+                Log::warning('Credit WebSocket notification failed', [
+                    'url' => $url,
+                    'status' => $response->status(),
+                    'response' => $response->body()
+                ]);
+                return false;
+            }
+        } catch (Exception $e) {
+            Log::error('Credit WebSocket notification error', [
+                'action' => $action,
+                'credit_id' => $credit->id,
+                'error' => $e->getMessage()
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Send payment notification
+     */
+    public function sendPaymentNotification($payment, $cobrador, $manager = null)
+    {
+        try {
+            $url = $this->getServerUrl() . '/payment-notification';
+            
+            $payload = [
+                'payment' => [
+                    'id' => $payment->id,
+                    'amount' => $payment->amount,
+                    'payment_date' => $payment->payment_date,
+                    'payment_method' => $payment->payment_method,
+                    'credit_id' => $payment->credit_id
+                ],
+                'cobrador' => [
+                    'id' => $cobrador->id,
+                    'name' => $cobrador->name,
+                    'type' => 'cobrador'
+                ],
+                'client' => [
+                    'id' => $payment->credit->client->id,
+                    'name' => $payment->credit->client->name,
+                    'type' => 'client'
+                ]
+            ];
+
+            // Agregar información del manager si está disponible
+            if ($manager) {
+                $payload['manager'] = [
+                    'id' => $manager->id,
+                    'name' => $manager->name,
+                    'type' => 'manager'
+                ];
+            }
+
+            $response = Http::timeout(10)->post($url, $payload);
+
+            if ($response->successful()) {
+                Log::info('Payment WebSocket notification sent successfully', [
+                    'payment_id' => $payment->id,
+                    'cobrador_id' => $cobrador->id,
+                    'amount' => $payment->amount
+                ]);
+                return true;
+            } else {
+                Log::warning('Payment WebSocket notification failed', [
+                    'url' => $url,
+                    'status' => $response->status(),
+                    'response' => $response->body()
+                ]);
+                return false;
+            }
+        } catch (Exception $e) {
+            Log::error('Payment WebSocket notification error', [
+                'payment_id' => $payment->id,
+                'error' => $e->getMessage()
             ]);
             return false;
         }
@@ -83,31 +216,20 @@ class WebSocketNotificationService
             'total_amount' => $credit->total_amount,
             'interest_rate' => $credit->interest_rate,
             'installment_amount' => $credit->installment_amount,
-            'payment_frequency' => $credit->payment_frequency,
+            'payment_frequency' => $credit->frequency,
             'end_date' => $credit->end_date->format('Y-m-d'),
             'days_overdue' => now()->diffInDays($credit->end_date, false),
         ]);
     }
 
     /**
-     * Send payment received notification
+     * Send payment received notification (legacy method for compatibility)
      */
     public function sendPaymentReceived($payment, $cobrador)
     {
-        return $this->sendNotification([
-            'event' => 'payment_update',
-            'type' => 'payment_received',
-            'user_id' => $cobrador->id,
-            'payment_id' => $payment->id,
-            'credit_id' => $payment->credit_id,
-            'client_id' => $payment->credit->client_id,
-            'client_name' => $payment->credit->client->name,
-            'amount' => $payment->amount,
-            'payment_date' => $payment->payment_date->format('Y-m-d'),
-            'payment_method' => $payment->payment_method,
-            'remaining_balance' => $payment->credit->total_amount - $payment->credit->payments()->sum('amount'),
-            'installments_paid' => $payment->credit->payments()->count(),
-        ]);
+        // Usar el nuevo método mejorado
+        $manager = $cobrador->assignedManager;
+        return $this->sendPaymentNotification($payment, $cobrador, $manager);
     }
 
     /**

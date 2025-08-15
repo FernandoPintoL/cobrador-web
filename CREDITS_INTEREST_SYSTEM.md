@@ -191,38 +191,44 @@ GET /api/credits/{credit}/payment-schedule
 GET /api/credits/overdue
 ```
 
-## 📊 Manejo de Diferentes Escenarios de Pago
+## 🚦 Flujo de Registro, Aprobación y Entrega de Créditos
 
-### 1. Pago Parcial (25 Bs de 50 Bs)
-```php
-$result = $credit->processPayment(25.00);
-// type: 'partial'
-// message: "Pago parcial. Falta: 25 Bs para completar la cuota."
-```
+### 1. Registro de Crédito (Solicitud)
+- **Endpoint:** `POST /api/credits`
+- **Descripción:** Registra una nueva solicitud de crédito.
+- **Permisos:** Cobrador, Manager
+- **Estado inicial:** `pending`
 
-### 2. Pago Regular (50 Bs exactos)
-```php
-$result = $credit->processPayment(50.00);
-// type: 'regular'
-// installments_covered: 1
-```
+### 2. Aprobación de Crédito
+- **Endpoint:** `POST /api/credits/{credit}/approve`
+- **Descripción:** Aprueba una solicitud de crédito pendiente.
+- **Permisos:** Manager
+- **Estado resultante:** `approved`
 
-### 3. Pago de Múltiples Cuotas (190 Bs = 3.8 cuotas)
-```php
-$result = $credit->processPayment(190.00);
-// type: 'multiple_installments'
-// installments_covered: 3 (floor de 3.8)
-// remaining_balance: actualizado correctamente
-```
+### 3. Rechazo de Crédito
+- **Endpoint:** `POST /api/credits/{credit}/reject`
+- **Descripción:** Rechaza una solicitud de crédito pendiente.
+- **Permisos:** Manager
+- **Estado resultante:** `rejected`
 
-### 4. Pago Completo del Crédito
-```php
-$result = $credit->processPayment(9999.00); // Más que el balance
-// type: 'full_payment'
-// excess_amount: cantidad sobrante
-// remaining_balance: 0
-// credit.status: 'completed'
-```
+### 4. Entrega del Crédito al Cliente
+- **Endpoint:** `POST /api/credits/{credit}/deliver`
+- **Descripción:** Registra la entrega del dinero al cliente. Puede ser realizado por el cobrador o el manager según permisos.
+- **Permisos:** Cobrador o Manager
+- **Estado resultante:** `delivered` o `active`
+- **Notas:** Se debe registrar quién entregó el dinero y la fecha de entrega.
+
+#### Ejemplo de flujo:
+1. El cobrador o manager registra la solicitud de crédito (estado: `pending`).
+2. El manager revisa y aprueba o rechaza la solicitud.
+   - Si aprueba, el crédito pasa a estado `approved`.
+   - Si rechaza, pasa a `rejected`.
+3. Si es aprobado, el cobrador o manager realiza la entrega del dinero usando el endpoint `/deliver`.
+4. El sistema actualiza el estado del crédito a `delivered` o `active` y registra la entrega.
+
+#### Consideraciones de Seguridad y Auditoría
+- El endpoint `/deliver` debe validar el rol del usuario.
+- Se recomienda registrar en la base de datos el usuario que realizó la entrega y la fecha/hora.
 
 ## 🚀 Automatización
 

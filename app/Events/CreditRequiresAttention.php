@@ -18,14 +18,26 @@ class CreditRequiresAttention implements ShouldBroadcast
 
     public $credit;
     public $cobrador;
+    public $manager;
+    public $reason;
 
     /**
      * Create a new event instance.
      */
-    public function __construct(Credit $credit, User $cobrador)
+    public function __construct(Credit $credit, string $reason = 'overdue')
     {
-        $this->credit = $credit;
-        $this->cobrador = $cobrador;
+        $this->credit = $credit->load(['client']);
+        $this->reason = $reason;
+
+        // Obtener el cobrador asignado al cliente del crédito
+        if ($this->credit->client && $this->credit->client->assigned_cobrador_id) {
+            $this->cobrador = User::find($this->credit->client->assigned_cobrador_id);
+
+            // Obtener el manager del cobrador
+            if ($this->cobrador && $this->cobrador->assigned_manager_id) {
+                $this->manager = User::find($this->cobrador->assigned_manager_id);
+            }
+        }
     }
 
     /**
@@ -33,10 +45,21 @@ class CreditRequiresAttention implements ShouldBroadcast
      */
     public function broadcastOn(): array
     {
-        return [
-            new PrivateChannel('cobrador.' . $this->cobrador->id),
-            new Channel('credits.attention')
+        $channels = [
+            new PrivateChannel('credits-attention'),
         ];
+
+        // Canal del cobrador
+        if ($this->cobrador) {
+            $channels[] = new PrivateChannel('user.' . $this->cobrador->id);
+        }
+
+        // Canal del manager
+        if ($this->manager) {
+            $channels[] = new PrivateChannel('user.' . $this->manager->id);
+        }
+
+        return $channels;
     }
 
     /**
@@ -45,26 +68,35 @@ class CreditRequiresAttention implements ShouldBroadcast
     public function broadcastWith(): array
     {
         return [
-            'credit_id' => $this->credit->id,
-            'client_id' => $this->credit->client_id,
-            'client_name' => $this->credit->client->name,
-            'amount' => $this->credit->amount,
-            'total_amount' => $this->credit->total_amount,
-            'interest_rate' => $this->credit->interest_rate,
-            'installment_amount' => $this->credit->installment_amount,
-            'payment_frequency' => $this->credit->payment_frequency,
-            'end_date' => $this->credit->end_date->format('Y-m-d'),
-            'days_overdue' => now()->diffInDays($this->credit->end_date, false),
-            'cobrador_id' => $this->cobrador->id,
-            'type' => 'credit_attention',
-            'timestamp' => now()->toISOString()
+            'credit' => [
+                'id' => $this->credit->id,
+                'amount' => $this->credit->amount,
+                'balance' => $this->credit->balance,
+                'end_date' => $this->credit->end_date,
+                'status' => $this->credit->status,
+                'client' => [
+                    'id' => $this->credit->client->id,
+                    'name' => $this->credit->client->name,
+                    'phone' => $this->credit->client->phone,
+                ],
+            ],
+            'cobrador' => $this->cobrador ? [
+                'id' => $this->cobrador->id,
+                'name' => $this->cobrador->name,
+            ] : null,
+            'manager' => $this->manager ? [
+                'id' => $this->manager->id,
+                'name' => $this->manager->name,
+            ] : null,
+            'reason' => $this->reason,
+            'timestamp' => now()->toISOString(),
         ];
     }
 
     /**
      * The event's broadcast name.
      */
-    public function broadcastAs(): string
+    public function broadcastAs()
     {
         return 'credit.requires.attention';
     }

@@ -52,13 +52,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/users/{user}/profile-image', [UserController::class, 'updateProfileImage'])->name('api.users.profile-image');
     Route::get('/users/by-roles', [UserController::class, 'getUsersByRoles'])->name('api.users.by-roles');
     Route::get('/users/by-multiple-roles', [UserController::class, 'getUsersByMultipleRoles'])->name('api.users.by-multiple-roles');
-    
+
     // Rutas para asignación de clientes a cobradores
     Route::get('/users/{cobrador}/clients', [UserController::class, 'getClientsByCobrador'])->name('api.users.cobrador.clients');
     Route::post('/users/{cobrador}/assign-clients', [UserController::class, 'assignClientsToCobrador'])->name('api.users.cobrador.assign-clients');
     Route::delete('/users/{cobrador}/clients/{client}', [UserController::class, 'removeClientFromCobrador'])->name('api.users.cobrador.remove-client');
     Route::get('/users/{client}/cobrador', [UserController::class, 'getCobradorByClient'])->name('api.users.client.cobrador');
-    
+
     // Rutas para asignación de cobradores a managers
     Route::get('/users/{manager}/cobradores', [UserController::class, 'getCobradoresByManager'])->name('api.users.manager.cobradores');
     Route::post('/users/{manager}/assign-cobradores', [UserController::class, 'assignCobradoresToManager'])->name('api.users.manager.assign-cobradores');
@@ -83,32 +83,41 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/routes/cobrador/{cobrador}', [RouteController::class, 'getByCobrador'])->name('api.routes.by-cobrador');
     Route::get('/routes/available-clients', [RouteController::class, 'getAvailableClients'])->name('api.routes.available-clients');
 
-    // Créditos
-    Route::apiResource('credits', CreditController::class)->names([
-        'index' => 'api.credits.index',
-        'store' => 'api.credits.store',
-        'show' => 'api.credits.show',
-        'update' => 'api.credits.update',
-        'destroy' => 'api.credits.destroy',
-    ]);
-    Route::post('/credits/waiting-list', [CreditController::class, 'storeInWaitingList'])->name('api.credits.store-waiting-list');
-    Route::get('/credits/client/{client}', [CreditController::class, 'getByClient'])->name('api.credits.by-client');
-    Route::get('/credits/{credit}/remaining-installments', [CreditController::class, 'getRemainingInstallments'])->name('api.credits.remaining-installments');
-    Route::get('/credits/cobrador/{cobrador}', [CreditController::class, 'getByCobrador'])->name('api.credits.by-cobrador');
-    Route::get('/credits/cobrador/{cobrador}/stats', [CreditController::class, 'getCobradorStats'])->name('api.credits.cobrador-stats');
-    Route::get('/credits-requiring-attention', [CreditController::class, 'getCreditsRequiringAttention'])->name('api.credits.requiring-attention');
+    // Créditos - Rutas principales
+    Route::apiResource('credits', CreditController::class);
+    Route::get('/credits/{credit}/remaining-installments', [CreditController::class, 'getRemainingInstallments']);
+    Route::get('/credits/client/{client}', [CreditController::class, 'getByClient']);
+    Route::get('/credits/cobrador/{cobrador}', [CreditController::class, 'getByCobrador']);
+    Route::get('/credits/cobrador/{cobrador}/stats', [CreditController::class, 'getCobradorStats']);
+    Route::get('/credits/manager/{manager}/stats', [CreditController::class, 'getManagerStats']);
+    Route::get('/credits-requiring-attention', [CreditController::class, 'getCreditsRequiringAttention']);
 
-    // Pagos
-    Route::apiResource('payments', PaymentController::class)->names([
-        'index' => 'api.payments.index',
-        'store' => 'api.payments.store',
-        'show' => 'api.payments.show',
-        'update' => 'api.payments.update',
-        'destroy' => 'api.payments.destroy',
-    ]);
-    Route::get('/payments/client/{client}', [PaymentController::class, 'getByClient'])->name('api.payments.by-client');
-    Route::get('/payments/cobrador/{cobrador}', [PaymentController::class, 'getByCobrador'])->name('api.payments.by-cobrador');
-    Route::get('/payments/credit/{credit}', [PaymentController::class, 'getByCredit'])->name('api.payments.by-credit');
+    // Créditos - Gestión de aprobación y entrega
+    Route::post('/credits/{credit}/approve', [CreditController::class, 'approve']);
+    Route::post('/credits/{credit}/reject', [CreditController::class, 'reject']);
+    Route::post('/credits/{credit}/deliver', [CreditController::class, 'deliver']);
+    Route::post('/credits/{credit}/reschedule', [CreditController::class, 'reschedule']);
+    Route::post('/credits/waiting-list', [CreditController::class, 'storeInWaitingList']);
+
+    // Lista de espera de créditos
+    Route::get('/credit-waiting-list/pending-approval', [CreditWaitingListController::class, 'pendingApproval']);
+    Route::get('/credit-waiting-list/waiting-delivery', [CreditWaitingListController::class, 'waitingForDelivery']);
+    Route::get('/credit-waiting-list/ready-today', [CreditWaitingListController::class, 'readyForDeliveryToday']);
+    Route::get('/credit-waiting-list/overdue', [CreditWaitingListController::class, 'overdueForDelivery']);
+    Route::get('/credit-waiting-list/summary', [CreditWaitingListController::class, 'getSummary']);
+    Route::get('/credit-waiting-list/{credit}/status', [CreditWaitingListController::class, 'getDeliveryStatus']);
+    Route::post('/credit-waiting-list/{credit}/approve', [CreditWaitingListController::class, 'approve']);
+    Route::post('/credit-waiting-list/{credit}/reject', [CreditWaitingListController::class, 'reject']);
+    Route::post('/credit-waiting-list/{credit}/deliver', [CreditWaitingListController::class, 'deliver']);
+    Route::post('/credit-waiting-list/{credit}/reschedule', [CreditWaitingListController::class, 'reschedule']);
+
+    // Pagos - Rutas principales
+    Route::apiResource('payments', PaymentController::class);
+    Route::get('/payments/credit/{credit}', [PaymentController::class, 'getByCredit']);
+    Route::get('/payments/cobrador/{cobrador}', [PaymentController::class, 'getByCobrador']);
+    Route::get('/payments/cobrador/{cobrador}/stats', [PaymentController::class, 'getCobradorStats']);
+    Route::get('/payments/recent', [PaymentController::class, 'getRecent']);
+    Route::get('/payments/today-summary', [PaymentController::class, 'getTodaySummary']);
 
     // Balances de efectivo
     Route::apiResource('cash-balances', CashBalanceController::class)->names([
@@ -156,10 +165,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/simulate-payment', [CreditPaymentController::class, 'simulatePayment'])->name('api.credits.simulate-payment');
         Route::get('/payment-schedule', [CreditPaymentController::class, 'getPaymentSchedule'])->name('api.credits.payment-schedule');
     });
-    
+
     // Créditos atrasados
     Route::get('/credits/overdue', [CreditPaymentController::class, 'getOverdueCredits'])->name('api.credits.overdue');
-    
+
     // Sistema de Lista de Espera para Créditos
     Route::prefix('credits/waiting-list')->group(function () {
         Route::get('/pending-approval', [CreditWaitingListController::class, 'pendingApproval'])->name('api.credits.waiting-list.pending-approval');
@@ -168,7 +177,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/overdue-delivery', [CreditWaitingListController::class, 'overdueForDelivery'])->name('api.credits.waiting-list.overdue-delivery');
         Route::get('/summary', [CreditWaitingListController::class, 'getSummary'])->name('api.credits.waiting-list.summary');
     });
-    
+
     Route::prefix('credits/{credit}/waiting-list')->group(function () {
         Route::post('/approve', [CreditWaitingListController::class, 'approve'])->name('api.credits.waiting-list.approve');
         Route::post('/reject', [CreditWaitingListController::class, 'reject'])->name('api.credits.waiting-list.reject');
@@ -176,7 +185,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/reschedule', [CreditWaitingListController::class, 'reschedule'])->name('api.credits.waiting-list.reschedule');
         Route::get('/status', [CreditWaitingListController::class, 'getDeliveryStatus'])->name('api.credits.waiting-list.status');
     });
-    
+
     // WebSocket Notifications
     Route::prefix('websocket')->group(function () {
         Route::post('/credit-attention/{credit}', [WebSocketNotificationController::class, 'sendCreditAttentionNotification'])->name('api.websocket.credit-attention');
@@ -185,4 +194,4 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/test', [WebSocketNotificationController::class, 'testWebSocket'])->name('api.websocket.test');
         Route::get('/test-connection', [WebSocketNotificationController::class, 'testDirectWebSocket'])->name('api.websocket.test-connection');
     });
-}); 
+});
