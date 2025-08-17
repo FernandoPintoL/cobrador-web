@@ -172,7 +172,7 @@ class CreditController extends BaseController
 
         // Disparar evento si el crédito fue creado en lista de espera
         if ($initialStatus === 'pending_approval') {
-            event(new CreditWaitingListUpdate($credit, 'created', $currentUser));
+//            event(new CreditWaitingListUpdate($credit, 'created', $currentUser));
         }
 
         $message = 'Crédito creado exitosamente';

@@ -164,20 +164,35 @@ class CreditWaitingListController extends Controller
         }
 
         $request->validate([
-            'scheduled_delivery_date' => 'required|date|after:now',
+            'scheduled_delivery_date' => 'sometimes|nullable|date|after_or_equal:now',
+            'immediate_delivery' => 'sometimes|boolean',
             'notes' => 'nullable|string|max:1000'
         ]);
 
         DB::beginTransaction();
         try {
-            $scheduledDate = Carbon::parse($request->scheduled_delivery_date);
-            $success = $credit->approveForDelivery(
+            // Determinar fecha programada o inmediata
+            $immediate = (bool) $request->boolean('immediate_delivery');
+            $scheduledDate = null;
+            if ($request->filled('scheduled_delivery_date')) {
+                $scheduledDate = Carbon::parse($request->scheduled_delivery_date);
+            } else {
+                // Si no se envía fecha y se solicita inmediata, usar ahora
+                if ($immediate) {
+                    $scheduledDate = now();
+                } else {
+                    // Por compatibilidad, si no hay fecha, también permitir ahora
+                    $scheduledDate = now();
+                }
+            }
+
+            $approved = $credit->approveForDelivery(
                 Auth::id(),
                 $scheduledDate,
                 $request->notes
             );
 
-            if (!$success) {
+            if (!$approved) {
                 DB::rollBack();
                 return response()->json([
                     'success' => false,
@@ -185,14 +200,33 @@ class CreditWaitingListController extends Controller
                 ], 422);
             }
 
+            // Si la fecha es ahora o en el pasado (o immediate=true), entregar de inmediato
+            $shouldDeliverNow = $immediate || ($scheduledDate && $scheduledDate <= now());
+            $deliveredNow = false;
+            if ($shouldDeliverNow) {
+                $deliveredNow = $credit->deliverToClient(Auth::id(), $request->notes);
+                if (!$deliveredNow) {
+                    DB::rollBack();
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No se pudo entregar el crédito inmediatamente. Verifica su estado actual.'
+                    ], 422);
+                }
+            }
+
             DB::commit();
 
-            // Disparar evento de actualización
+            // Disparar eventos de actualización
             event(new CreditWaitingListUpdate($credit->fresh(), 'approved', Auth::user()));
+            if ($shouldDeliverNow && $deliveredNow) {
+                event(new CreditWaitingListUpdate($credit->fresh(), 'delivered', Auth::user()));
+            }
 
             return response()->json([
                 'success' => true,
-                'message' => 'Crédito aprobado para entrega exitosamente',
+                'message' => $shouldDeliverNow && $deliveredNow
+                    ? 'Crédito aprobado y entregado al cliente exitosamente'
+                    : 'Crédito aprobado para entrega exitosamente',
                 'data' => [
                     'credit' => $credit->fresh(),
                     'delivery_status' => $credit->fresh()->getDeliveryStatusInfo()

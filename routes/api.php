@@ -99,11 +99,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/credits/manager/{manager}/stats', [CreditController::class, 'getManagerStats'])->name('api.credits.manager.stats');
     Route::get('/credits-requiring-attention', [CreditController::class, 'getCreditsRequiringAttention'])->name('api.credits.requiring-attention');
 
-    // Créditos - Gestión de aprobación y entrega
-    Route::post('/credits/{credit}/approve', [CreditController::class, 'approve'])->name('api.credits.approve');
-    Route::post('/credits/{credit}/reject', [CreditController::class, 'reject'])->name('api.credits.reject');
-    Route::post('/credits/{credit}/deliver', [CreditController::class, 'deliver'])->name('api.credits.deliver');
-    Route::post('/credits/{credit}/reschedule', [CreditController::class, 'reschedule'])->name('api.credits.reschedule');
+    // Créditos - Gestión de aprobación y entrega (preferir endpoints unificados de waiting-list)
+    // Rutas duplicadas removidas: approve/reject/deliver/reschedule en CreditController
     Route::post('/credits/waiting-list', [CreditController::class, 'storeInWaitingList'])->name('api.credits.store-waiting-list');
 
     // Créditos atrasados
@@ -111,7 +108,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Gestión avanzada de pagos de créditos
     Route::prefix('credits/{credit}')->group(function () {
-        Route::post('/payments', [CreditPaymentController::class, 'processPayment'])->name('api.credits.process-payment');
+        // Preferir Api\PaymentController::store para crear pagos
+        // Route::post('/payments', [CreditPaymentController::class, 'processPayment'])->name('api.credits.process-payment');
         Route::get('/details', [CreditPaymentController::class, 'getCreditDetails'])->name('api.credits.details');
         Route::post('/simulate-payment', [CreditPaymentController::class, 'simulatePayment'])->name('api.credits.simulate-payment');
         Route::get('/payment-schedule', [CreditPaymentController::class, 'getPaymentSchedule'])->name('api.credits.payment-schedule');

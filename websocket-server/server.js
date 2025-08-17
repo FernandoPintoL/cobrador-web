@@ -6,6 +6,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getLocalIP } from './network-utils.js';
+import { findUserSocket, notifyUser, notifyUserType, notifyAll, formatNotification } from './notification-utils.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -92,35 +93,50 @@ app.get('/health', (req, res) => {
 
 // API endpoint para notificaciones externas (Laravel)
 app.post('/notify', (req, res) => {
-    const { event, data } = req.body;
+    // Soportar múltiples formatos para compatibilidad
+    const { event, data, userId, userType, notification } = req.body;
 
-    console.log('📡 Received notification from external source:', event, data);
+    // Determinar el evento a enviar
+    const eventName = event || req.body.event || 'notification';
 
-    // Enviar notificación a todos los clientes conectados o específicos
-    if (data.user_id) {
-        // Buscar socket específico del usuario
-        const userSocket = Array.from(activeUsers.entries())
-            .find(([socketId, userData]) => userData.userId == data.user_id);
+    // Determinar los datos a enviar
+    let notificationData = data || notification || {};
 
-        if (userSocket) {
-            const [socketId] = userSocket;
-            io.to(socketId).emit(event, data);
-            console.log(`📨 Notification sent to user ${data.user_id}:`, event);
-        } else {
-            console.log(`⚠️ User ${data.user_id} not connected`);
+    console.log('📡 Received notification from external source:', eventName);
+
+    try {
+        let notificationSent = false;
+
+        // Notificar a un usuario específico por ID
+        if (userId || data?.user_id) {
+            const targetUserId = userId || data?.user_id;
+            notificationSent = notifyUser(io, targetUserId, eventName, notificationData);
         }
-    } else {
-        // Broadcast a todos los usuarios conectados
-        io.emit(event, data);
-        console.log(`📢 Broadcast notification sent:`, event);
-    }
+        // Notificar a todos los usuarios de un tipo específico (cobrador, manager, etc.)
+        else if (userType) {
+            notificationSent = notifyUserType(io, userType, eventName, notificationData);
+        }
+        // Broadcast a todos los usuarios
+        else {
+            notifyAll(io, eventName, notificationData);
+            notificationSent = true;
+        }
 
-    res.json({
-        success: true,
-        message: 'Notification sent',
-        event: event,
-        target: data.user_id ? `user ${data.user_id}` : 'all users'
-    });
+        res.json({
+            success: true,
+            message: 'Notification sent',
+            event: eventName,
+            target: userId || data?.user_id
+                ? `user ${userId || data.user_id}`
+                : (userType ? `all ${userType}s` : 'all users')
+        });
+    } catch (error) {
+        console.error('Error sending notification:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
 });
 
 // API específica para notificaciones de créditos
@@ -135,103 +151,80 @@ app.post('/credit-notification', (req, res) => {
     });
 
     try {
+        let notificationSent = false;
+
         switch (action) {
             case 'created':
                 // Notificar al manager que un cobrador creó un crédito
                 if (manager) {
-                    const managerSocket = Array.from(activeUsers.entries())
-                        .find(([, userData]) => userData.userId == manager.id);
-
-                    if (managerSocket) {
-                        const [socketId] = managerSocket;
-                        io.to(socketId).emit('credit_waiting_approval', {
+                    const notificationData = formatNotification(
+                        `El cobrador ${cobrador.name} ha creado un crédito de $${credit.amount} que requiere aprobación`,
+                        {
                             type: 'credit_created',
                             credit: credit,
-                            cobrador: cobrador,
-                            message: `El cobrador ${cobrador.name} ha creado un crédito de $${credit.amount} que requiere aprobación`,
-                            timestamp: new Date().toISOString()
-                        });
-                        console.log(`📨 Credit creation notification sent to manager ${manager.id}`);
-                    }
+                            cobrador: cobrador
+                        }
+                    );
+                    notificationSent = notifyUser(io, manager.id, 'credit_waiting_approval', notificationData);
                 }
                 break;
 
             case 'approved':
                 // Notificar al cobrador que su crédito fue aprobado
                 if (cobrador) {
-                    const cobradorSocket = Array.from(activeUsers.entries())
-                        .find(([, userData]) => userData.userId == cobrador.id);
-
-                    if (cobradorSocket) {
-                        const [socketId] = cobradorSocket;
-                        io.to(socketId).emit('credit_approved', {
+                    const notificationData = formatNotification(
+                        `Tu crédito de $${credit.amount} ha sido aprobado por ${manager.name}`,
+                        {
                             type: 'credit_approved',
                             credit: credit,
-                            manager: manager,
-                            message: `Tu crédito de $${credit.amount} ha sido aprobado por ${manager.name}`,
-                            timestamp: new Date().toISOString()
-                        });
-                        console.log(`📨 Credit approval notification sent to cobrador ${cobrador.id}`);
-                    }
+                            manager: manager
+                        }
+                    );
+                    notificationSent = notifyUser(io, cobrador.id, 'credit_approved', notificationData);
                 }
                 break;
 
             case 'rejected':
                 // Notificar al cobrador que su crédito fue rechazado
                 if (cobrador) {
-                    const cobradorSocket = Array.from(activeUsers.entries())
-                        .find(([, userData]) => userData.userId == cobrador.id);
-
-                    if (cobradorSocket) {
-                        const [socketId] = cobradorSocket;
-                        io.to(socketId).emit('credit_rejected', {
+                    const notificationData = formatNotification(
+                        `Tu crédito de $${credit.amount} ha sido rechazado por ${manager.name}`,
+                        {
                             type: 'credit_rejected',
                             credit: credit,
-                            manager: manager,
-                            message: `Tu crédito de $${credit.amount} ha sido rechazado por ${manager.name}`,
-                            timestamp: new Date().toISOString()
-                        });
-                        console.log(`📨 Credit rejection notification sent to cobrador ${cobrador.id}`);
-                    }
+                            manager: manager
+                        }
+                    );
+                    notificationSent = notifyUser(io, cobrador.id, 'credit_rejected', notificationData);
                 }
                 break;
 
             case 'delivered':
                 // Notificar al manager que un crédito fue entregado
                 if (manager) {
-                    const managerSocket = Array.from(activeUsers.entries())
-                        .find(([, userData]) => userData.userId == manager.id);
-
-                    if (managerSocket) {
-                        const [socketId] = managerSocket;
-                        io.to(socketId).emit('credit_delivered', {
+                    const notificationData = formatNotification(
+                        `El cobrador ${cobrador.name} ha entregado el crédito de $${credit.amount}`,
+                        {
                             type: 'credit_delivered',
                             credit: credit,
-                            cobrador: cobrador,
-                            message: `El cobrador ${cobrador.name} ha entregado el crédito de $${credit.amount}`,
-                            timestamp: new Date().toISOString()
-                        });
-                        console.log(`📨 Credit delivery notification sent to manager ${manager.id}`);
-                    }
+                            cobrador: cobrador
+                        }
+                    );
+                    notificationSent = notifyUser(io, manager.id, 'credit_delivered', notificationData);
                 }
                 break;
 
             case 'requires_attention':
                 // Notificar al cobrador que un crédito requiere atención
                 if (cobrador) {
-                    const cobradorSocket = Array.from(activeUsers.entries())
-                        .find(([, userData]) => userData.userId == cobrador.id);
-
-                    if (cobradorSocket) {
-                        const [socketId] = cobradorSocket;
-                        io.to(socketId).emit('credit_attention_required', {
+                    const notificationData = formatNotification(
+                        `El crédito de $${credit.amount} requiere tu atención`,
+                        {
                             type: 'credit_attention',
-                            credit: credit,
-                            message: `El crédito de $${credit.amount} requiere tu atención`,
-                            timestamp: new Date().toISOString()
-                        });
-                        console.log(`📨 Credit attention notification sent to cobrador ${cobrador.id}`);
-                    }
+                            credit: credit
+                        }
+                    );
+                    notificationSent = notifyUser(io, cobrador.id, 'credit_attention_required', notificationData);
                 }
                 break;
 
@@ -243,7 +236,8 @@ app.post('/credit-notification', (req, res) => {
             success: true,
             message: 'Credit notification processed',
             action: action,
-            creditId: credit?.id
+            creditId: credit?.id,
+            sent: notificationSent
         });
 
     } catch (error) {
@@ -267,47 +261,41 @@ app.post('/payment-notification', (req, res) => {
     });
 
     try {
+        let notificationSent = false;
+
         // Notificar al cobrador que recibió un pago
         if (cobrador) {
-            const cobradorSocket = Array.from(activeUsers.entries())
-                .find(([, userData]) => userData.userId == cobrador.id);
-
-            if (cobradorSocket) {
-                const [socketId] = cobradorSocket;
-                io.to(socketId).emit('payment_received', {
+            const notificationData = formatNotification(
+                `Has recibido un pago de $${payment.amount} de ${client.name}`,
+                {
                     type: 'payment_received',
                     payment: payment,
-                    client: client,
-                    message: `Has recibido un pago de $${payment.amount} de ${client.name}`,
-                    timestamp: new Date().toISOString()
-                });
-                console.log(`📨 Payment notification sent to cobrador ${cobrador.id}`);
-            }
+                    client: client
+                }
+            );
+            notificationSent = notifyUser(io, cobrador.id, 'payment_received', notificationData);
         }
 
         // Notificar al manager sobre el pago recibido por su cobrador
         if (manager) {
-            const managerSocket = Array.from(activeUsers.entries())
-                .find(([, userData]) => userData.userId == manager.id);
-
-            if (managerSocket) {
-                const [socketId] = managerSocket;
-                io.to(socketId).emit('cobrador_payment_received', {
+            const notificationData = formatNotification(
+                `El cobrador ${cobrador.name} recibió un pago de $${payment.amount} de ${client.name}`,
+                {
                     type: 'cobrador_payment_received',
                     payment: payment,
                     cobrador: cobrador,
-                    client: client,
-                    message: `El cobrador ${cobrador.name} recibió un pago de $${payment.amount} de ${client.name}`,
-                    timestamp: new Date().toISOString()
-                });
-                console.log(`📨 Cobrador payment notification sent to manager ${manager.id}`);
-            }
+                    client: client
+                }
+            );
+            notifyUser(io, manager.id, 'cobrador_payment_received', notificationData);
+            notificationSent = true;
         }
 
         res.json({
             success: true,
             message: 'Payment notification processed',
-            paymentId: payment?.id
+            paymentId: payment?.id,
+            sent: notificationSent
         });
 
     } catch (error) {
@@ -560,25 +548,6 @@ app.get('/active-users', (req, res) => {
     });
 });
 
-// Función para enviar notificación desde API externa
-app.post('/notify', (req, res) => {
-    const { userId, userType, notification, event } = req.body;
-
-    try {
-        if (userId) {
-            // Notificar a usuario específico
-            io.to(`user_${userId}`).emit(event || 'notification', notification);
-        } else if (userType) {
-            // Notificar a todos los usuarios de un tipo
-            io.to(userType + 's').emit(event || 'notification', notification);
-        }
-
-        res.json({ success: true, message: 'Notificación enviada' });
-    } catch (error) {
-        console.error('Error enviando notificación:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
 
 // Iniciar servidor
 server.listen(PORT, '0.0.0.0', () => {

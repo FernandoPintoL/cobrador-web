@@ -24,33 +24,16 @@ class SendCreditAttentionNotification implements ShouldQueue
 
     /**
      * Handle the event.
+     *
+     * IMPORTANT: WebSocket delivery for CreditRequiresAttention is centralized in
+     * WebSocketNotificationListener to avoid duplicated notifications.
+     * This listener now only logs for traceability.
      */
     public function handle(CreditRequiresAttention $event): void
     {
-        try {
-            // Enviar notificación al WebSocket Node.js
-            $sent = $this->webSocketService->sendCreditAttention(
-                $event->credit,
-                $event->cobrador
-            );
-
-            if ($sent) {
-                Log::info('Credit attention notification sent via WebSocket', [
-                    'credit_id' => $event->credit->id,
-                    'cobrador_id' => $event->cobrador->id
-                ]);
-            } else {
-                Log::warning('Failed to send credit attention notification via WebSocket', [
-                    'credit_id' => $event->credit->id,
-                    'cobrador_id' => $event->cobrador->id
-                ]);
-            }
-        } catch (\Exception $e) {
-            Log::error('Error sending credit attention notification', [
-                'credit_id' => $event->credit->id,
-                'cobrador_id' => $event->cobrador->id,
-                'error' => $e->getMessage()
-            ]);
-        }
+        Log::info('CreditRequiresAttention received; WebSocket sending handled by WebSocketNotificationListener to avoid duplicates', [
+            'credit_id' => $event->credit->id,
+            'cobrador_id' => $event->cobrador->id ?? null,
+        ]);
     }
 }

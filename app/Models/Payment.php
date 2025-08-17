@@ -23,6 +23,7 @@ class Payment extends Model
         'status',
         'transaction_id',
         'installment_number',
+        'received_by',
     ];
 
     protected $casts = [
@@ -54,6 +55,14 @@ class Payment extends Model
     public function credit(): BelongsTo
     {
         return $this->belongsTo(Credit::class);
+    }
+
+    /**
+     * Get the user who received this payment.
+     */
+    public function receivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'received_by');
     }
 
     /**
@@ -135,7 +144,7 @@ class Payment extends Model
                         $oldAmount = $payment->getOriginal('amount');
                         $newAmount = $payment->amount;
                         $difference = $newAmount - $oldAmount;
-                        
+
                         $credit->balance = $credit->balance - $difference;
                         $credit->save();
                     }
@@ -148,4 +157,4 @@ class Payment extends Model
             }
         });
     }
-} 
+}

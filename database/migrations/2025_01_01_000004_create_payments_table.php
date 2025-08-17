@@ -24,6 +24,7 @@ return new class extends Migration
             $table->enum('status', ['pending', 'completed', 'failed', 'cancelled'])->default('pending');
             $table->string('transaction_id')->nullable();
             $table->integer('installment_number');
+            $table->foreignId('received_by')->nullable()->constrained('users')->onDelete('set null');
             $table->timestamps();
         });
     }
@@ -35,4 +36,4 @@ return new class extends Migration
     {
         Schema::dropIfExists('payments');
     }
-}; 
+};

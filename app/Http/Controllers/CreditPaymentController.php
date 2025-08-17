@@ -87,11 +87,16 @@ class CreditPaymentController extends Controller
      */
     public function getCreditDetails(Credit $credit): JsonResponse
     {
-        $credit->load(['client', 'createdBy', 'payments']);
+        $credit->load(['createdBy', 'payments']);
+        $credit->client();
 
         return response()->json([
             'success' => true,
             'data' => [
+                'location_cliente' => [
+                    'latitude' => $credit->client->latitude ?? null,
+                    'longitude' => $credit->client->longitude ?? null,
+                ],
                 'credit' => $credit,
                 'summary' => [
                     'original_amount' => $credit->amount,

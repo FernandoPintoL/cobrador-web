@@ -67,7 +67,6 @@ class PaymentController extends BaseController
             'amount' => 'required|numeric|min:0.01',
             'payment_method' => 'required|in:cash,transfer,check,other',
             'payment_date' => 'required|date',
-            'notes' => 'nullable|string|max:1000',
         ]);
 
         $currentUser = Auth::user();
@@ -93,11 +92,13 @@ class PaymentController extends BaseController
 
         $payment = Payment::create([
             'credit_id' => $request->credit_id,
+            'client_id' => $credit->client->id,
+            'cobrador_id' => $credit->createdBy->id,
             'amount' => $request->amount,
             'payment_method' => $request->payment_method,
             'payment_date' => $request->payment_date,
             'received_by' => $currentUser->id,
-            'notes' => $request->notes,
+            'installment_number' => $request->installment_number
         ]);
 
         // Actualizar el balance del crédito
@@ -114,7 +115,7 @@ class PaymentController extends BaseController
         $payment->load(['credit.client', 'receivedBy']);
 
         // Disparar evento de pago recibido
-        event(new PaymentReceived($payment));
+//        event(new PaymentReceived($payment));
 
         return $this->sendResponse($payment, 'Pago registrado exitosamente');
     }

@@ -93,25 +93,25 @@ class Credit extends Model
     {
         $totalInstallments = $this->calculateTotalInstallments();
         $paidInstallments = $this->payments()->where('status', 'completed')->count();
-        
+
         return max(0, $totalInstallments - $paidInstallments);
     }
 
     /**
      * Calculate the total number of installments based on frequency and dates.
      */
-    private function calculateTotalInstallments(): int
+    public function calculateTotalInstallments(): int
     {
         $startDate = Carbon::parse($this->start_date);
         $endDate = Carbon::parse($this->end_date);
-        
+
         switch ($this->frequency) {
             case 'daily':
                 return $startDate->diffInDays($endDate);
             case 'weekly':
-                return $startDate->diffInWeeks($endDate) + 1;
+                return $startDate->diffInWeeks($endDate);
             case 'biweekly':
-                return $startDate->diffInWeeks($endDate) / 2 + 1;
+                return (int) floor($startDate->diffInWeeks($endDate) / 2) + 1;
             case 'monthly':
                 return $startDate->diffInMonths($endDate) + 1;
             default:
@@ -135,7 +135,7 @@ class Credit extends Model
     {
         $totalInstallments = $this->calculateTotalInstallments();
         $totalAmount = $this->total_amount ?? $this->calculateTotalAmount();
-        
+
         return $totalInstallments > 0 ? $totalAmount / $totalInstallments : 0;
     }
 
@@ -156,7 +156,7 @@ class Credit extends Model
     {
         $totalAmount = $this->total_amount ?? $this->calculateTotalAmount();
         $paidAmount = $this->getTotalPaidAmount();
-        
+
         return max(0, $totalAmount - $paidAmount);
     }
 
@@ -167,7 +167,7 @@ class Credit extends Model
     {
         $totalInstallments = $this->calculateTotalInstallments();
         $completedPayments = $this->payments()->where('status', 'completed')->count();
-        
+
         return max(0, $totalInstallments - $completedPayments);
     }
 
@@ -178,11 +178,11 @@ class Credit extends Model
     {
         $startDate = Carbon::parse($this->start_date);
         $currentDate = Carbon::now();
-        
+
         if ($currentDate->lt($startDate)) {
             return 0;
         }
-        
+
         switch ($this->frequency) {
             case 'daily':
                 return $startDate->diffInDays($currentDate) + 1;
@@ -204,7 +204,7 @@ class Credit extends Model
     {
         $expectedInstallments = $this->getExpectedInstallments();
         $completedPayments = $this->payments()->where('status', 'completed')->count();
-        
+
         return $completedPayments < $expectedInstallments;
     }
 
@@ -216,11 +216,11 @@ class Credit extends Model
         if (!$this->isOverdue()) {
             return 0;
         }
-        
+
         $expectedInstallments = $this->getExpectedInstallments();
         $completedPayments = $this->payments()->where('status', 'completed')->count();
         $overdueInstallments = $expectedInstallments - $completedPayments;
-        
+
         return $overdueInstallments * $this->installment_amount;
     }
 
@@ -231,7 +231,7 @@ class Credit extends Model
     {
         $currentBalance = $this->getCurrentBalance();
         $regularInstallment = $this->installment_amount;
-        
+
         // Determinar tipo de pago
         $result = [
             'payment_amount' => $paymentAmount,
@@ -242,7 +242,7 @@ class Credit extends Model
             'installments_covered' => 0,
             'excess_amount' => 0,
         ];
-        
+
         if ($paymentAmount > $currentBalance) {
             // Pago excesivo - paga todo el crédito
             $result['type'] = 'full_payment';
@@ -250,20 +250,20 @@ class Credit extends Model
             $result['remaining_balance'] = 0;
             $result['message'] = "Pago completo del crédito. Exceso: {$result['excess_amount']} Bs.";
             $result['installments_covered'] = $this->getPendingInstallments();
-            
+
         } elseif ($paymentAmount >= $regularInstallment) {
             // Pago que cubre una o más cuotas
             $installmentsCovered = floor($paymentAmount / $regularInstallment);
             $result['installments_covered'] = $installmentsCovered;
             $result['type'] = $installmentsCovered > 1 ? 'multiple_installments' : 'regular';
             $result['message'] = "Pago cubre {$installmentsCovered} cuota(s).";
-            
+
         } else {
             // Pago parcial
             $result['type'] = 'partial';
             $result['message'] = "Pago parcial. Falta: " . ($regularInstallment - $paymentAmount) . " Bs para completar la cuota.";
         }
-        
+
         return $result;
     }
 
@@ -276,10 +276,10 @@ class Credit extends Model
         $startDate = Carbon::parse($this->start_date);
         $totalInstallments = $this->calculateTotalInstallments();
         $installmentAmount = $this->installment_amount;
-        
+
         for ($i = 0; $i < $totalInstallments; $i++) {
             $dueDate = clone $startDate;
-            
+
             switch ($this->frequency) {
                 case 'daily':
                     $dueDate->addDays($i);
@@ -294,7 +294,7 @@ class Credit extends Model
                     $dueDate->addMonths($i);
                     break;
             }
-            
+
             $schedule[] = [
                 'installment_number' => $i + 1,
                 'due_date' => $dueDate->format('Y-m-d'),
@@ -302,7 +302,7 @@ class Credit extends Model
                 'status' => 'pending', // Se puede actualizar con pagos reales
             ];
         }
-        
+
         return $schedule;
     }
 
@@ -347,12 +347,12 @@ class Credit extends Model
             if (!$credit->total_amount && $credit->amount && $credit->interest_rate) {
                 $credit->total_amount = $credit->calculateTotalAmount();
             }
-            
+
             // Auto-calcular installment_amount si no está definido
             if (!$credit->installment_amount && $credit->total_amount) {
                 $credit->installment_amount = $credit->calculateInstallmentAmount();
             }
-            
+
             // Inicializar balance como total_amount si no está definido
             if (!$credit->balance && $credit->total_amount) {
                 $credit->balance = $credit->total_amount;
@@ -445,8 +445,8 @@ class Credit extends Model
      */
     public function isReadyForDelivery(): bool
     {
-        return $this->status === 'waiting_delivery' 
-            && $this->scheduled_delivery_date 
+        return $this->status === 'waiting_delivery'
+            && $this->scheduled_delivery_date
             && $this->scheduled_delivery_date <= now();
     }
 
@@ -455,8 +455,8 @@ class Credit extends Model
      */
     public function isOverdueForDelivery(): bool
     {
-        return $this->status === 'waiting_delivery' 
-            && $this->scheduled_delivery_date 
+        return $this->status === 'waiting_delivery'
+            && $this->scheduled_delivery_date
             && $this->scheduled_delivery_date < now()->subDays(1); // 1 día de gracia
     }
 
@@ -588,4 +588,4 @@ class Credit extends Model
             'rejection_reason' => $this->rejection_reason,
         ];
     }
-} 
+}
