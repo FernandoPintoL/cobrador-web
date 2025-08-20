@@ -22,18 +22,27 @@ class DatabaseSeeder extends Seeder
         $admin = User::factory()->create([
             'name' => 'Administrador',
             'email' => 'admin@cobrador.com',
+            'ci' => '123456789',
             'password' => bcrypt('password'),
         ]);
 
         // Asignar rol de admin
         $admin->assignRole('admin');
 
-        // Crear usuarios de ejemplo
-        User::factory(5)->create()->each(function ($user) {
+        // Crear una tasa de interés por defecto
+        \App\Models\InterestRate::create([
+            'name' => 'Tasa por defecto',
+            'rate' => 20.00,
+            'is_active' => true,
+            'created_by' => $admin->id,
+        ]);
+
+        // Crear usuarios de ejemplo con CI únicos
+        User::factory(5)->sequence(fn ($sequence) => ['ci' => '10000000' . $sequence->index])->create()->each(function ($user) {
             $user->assignRole('cobrador');
         });
 
-        User::factory(10)->create()->each(function ($user) {
+        User::factory(10)->sequence(fn ($sequence) => ['ci' => '20000000' . $sequence->index])->create()->each(function ($user) {
             $user->assignRole('client');
         });
     }

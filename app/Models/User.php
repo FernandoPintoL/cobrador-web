@@ -34,6 +34,7 @@ class User extends Authenticatable
         'longitude',
         'assigned_cobrador_id',
         'assigned_manager_id',
+        'ci', // Nuevo campo para el CI
     ];
 
     /**
@@ -244,7 +245,7 @@ class User extends Authenticatable
         if ($this->profile_image) {
             return asset('storage/' . $this->profile_image);
         }
-        
+
         // Retorna una imagen por defecto
         return asset('images/default-avatar.png');
     }

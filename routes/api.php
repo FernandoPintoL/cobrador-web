@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\WebSocketNotificationController;
 use App\Http\Controllers\Api\CreditWaitingListController;
 use App\Http\Controllers\CreditPaymentController;
+use App\Http\Controllers\Api\InterestRateController;
 
 /*
 |--------------------------------------------------------------------------
@@ -83,6 +84,16 @@ Route::middleware('auth:sanctum')->group(function () {
     ]);
     Route::get('/routes/cobrador/{cobrador}', [RouteController::class, 'getByCobrador'])->name('api.routes.by-cobrador');
     Route::get('/routes/available-clients', [RouteController::class, 'getAvailableClients'])->name('api.routes.available-clients');
+
+    // Tasas de interés
+    Route::apiResource('interest-rates', InterestRateController::class)->names([
+        'index' => 'api.interest-rates.index',
+        'store' => 'api.interest-rates.store',
+        'show' => 'api.interest-rates.show',
+        'update' => 'api.interest-rates.update',
+        'destroy' => 'api.interest-rates.destroy',
+    ]);
+    Route::get('/interest-rates/active', [InterestRateController::class, 'active'])->name('api.interest-rates.active');
 
     // Créditos - Rutas principales
     Route::apiResource('credits', CreditController::class)->names([

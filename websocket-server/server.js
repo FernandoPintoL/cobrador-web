@@ -29,7 +29,7 @@ const corsOrigins = process.env.NODE_ENV === 'production'
     ]
     : [
         process.env.CLIENT_URL || "http://localhost:3000",
-        process.env.MOBILE_CLIENT_URL || "http://192.168.5.44:3000",
+        process.env.MOBILE_CLIENT_URL || "http://192.168.0.24:3000",
         // Permitir cualquier IP local para desarrollo
         /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
         /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,

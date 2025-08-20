@@ -62,10 +62,11 @@ class UserController extends BaseController
         // Determinar si solo se está creando un cliente
         $requestedRoles = $request->get('roles', []);
         $isOnlyClient = count($requestedRoles) === 1 && in_array('client', $requestedRoles);
-        
+
         // Validación dinámica basada en el rol
         $validationRules = [
             'name' => 'required|string|max:255',
+            'ci' => 'required|string|max:20|unique:users,ci', // Validación para el CI
             'password' => 'nullable|string|min:8',
             'address' => 'nullable|string',
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
@@ -77,10 +78,10 @@ class UserController extends BaseController
             'location.coordinates.0' => 'nullable|numeric|between:-180,180', // longitude
             'location.coordinates.1' => 'nullable|numeric|between:-90,90',   // latitude
         ];
-        
+
         // Determinar si está creando un cobrador
         $isCreatingCobrador = in_array('cobrador', $requestedRoles);
-        
+
         // Si solo es cliente, el email y phone son opcionales
         if ($isOnlyClient) {
             $validationRules['email'] = 'nullable|string|email|max:255|unique:users,email';
@@ -94,7 +95,7 @@ class UserController extends BaseController
             $validationRules['email'] = 'required|string|email|max:255|unique:users,email';
             $validationRules['phone'] = 'nullable|string|max:20|unique:users,phone';
         }
-        
+
         $request->validate($validationRules);
 
         // Validación adicional para cobradores: al menos email o phone debe estar presente
@@ -106,20 +107,20 @@ class UserController extends BaseController
 
         // Obtener el usuario autenticado
         $currentUser = Auth::user();
-        
+
         // Validar permisos según el rol del usuario autenticado
         $requestedRoles = $request->roles;
-        
+
         // Solo admins pueden crear otros admins
         if (in_array('admin', $requestedRoles) && !$currentUser->hasRole('admin')) {
             return $this->sendError('No autorizado', 'Solo los administradores pueden crear usuarios con rol de admin', 403);
         }
-        
+
         // Los cobradores solo pueden crear clientes
         if ($currentUser->hasRole('cobrador') && !in_array('client', $requestedRoles)) {
             return $this->sendError('No autorizado', 'Los cobradores solo pueden crear usuarios con rol de cliente', 403);
         }
-        
+
         // Los managers pueden crear cobradores y clientes, pero no admins
         if ($currentUser->hasRole('manager') && in_array('admin', $requestedRoles)) {
             return $this->sendError('No autorizado', 'Los managers no pueden crear usuarios con rol de admin', 403);
@@ -133,10 +134,10 @@ class UserController extends BaseController
         // Procesar ubicación GeoJSON si se proporciona
         if ($request->has('location') && $request->location) {
             $location = $request->location;
-            if (isset($location['type']) && $location['type'] === 'Point' && 
-                isset($location['coordinates']) && is_array($location['coordinates']) && 
+            if (isset($location['type']) && $location['type'] === 'Point' &&
+                isset($location['coordinates']) && is_array($location['coordinates']) &&
                 count($location['coordinates']) === 2) {
-                
+
                 $userData['longitude'] = $location['coordinates'][0]; // longitude es el primer elemento
                 $userData['latitude'] = $location['coordinates'][1];  // latitude es el segundo elemento
             }
@@ -149,7 +150,7 @@ class UserController extends BaseController
         if($currentUser->hasRole('cobrador') && $isOnlyClient){
             $userData['assigned_cobrador_id'] = $currentUser->id; // Asignar el ID del cobrador
         }
-        
+
         // Solo agregar email si se proporciona
         if ($request->filled('email')) {
             $userData['email'] = $request->email;
@@ -187,7 +188,7 @@ class UserController extends BaseController
 
         // Asignar roles al usuario
         $user->assignRole($requestedRoles);
-        
+
         $user->load('roles', 'permissions');
 
         $message = 'Usuario creado exitosamente';
@@ -224,10 +225,11 @@ class UserController extends BaseController
         // Determinar si el usuario tiene solo el rol de cliente
         $userRoles = $user->roles->pluck('name')->toArray();
         $isOnlyClient = count($userRoles) === 1 && in_array('client', $userRoles);
-        
+
         // Validación dinámica basada en el rol actual del usuario
         $validationRules = [
             'name' => 'required|string|max:255',
+            'ci' => 'required|string|max:20|unique:users,ci,' . $user->id, // Validación para el CI en actualización
             'phone' => 'nullable|string|max:20|unique:users,phone,' . $user->id,
             'address' => 'nullable|string',
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
@@ -239,14 +241,14 @@ class UserController extends BaseController
             'location.coordinates.0' => 'nullable|numeric|between:-180,180', // longitude
             'location.coordinates.1' => 'nullable|numeric|between:-90,90',   // latitude
         ];
-        
+
         // Si solo es cliente, el email es opcional
         if ($isOnlyClient) {
             $validationRules['email'] = 'nullable|string|email|max:255|unique:users,email,' . $user->id;
         } else {
             $validationRules['email'] = 'required|string|email|max:255|unique:users,email,' . $user->id;
         }
-        
+
         $request->validate($validationRules);
 
         $userData = [
@@ -254,7 +256,7 @@ class UserController extends BaseController
             'phone' => $request->phone,
             'address' => $request->address,
         ];
-        
+
         // Solo agregar email si se proporciona
         if ($request->filled('email')) {
             $userData['email'] = $request->email;
@@ -263,10 +265,10 @@ class UserController extends BaseController
         // Procesar ubicación GeoJSON si se proporciona
         if ($request->has('location') && $request->location) {
             $location = $request->location;
-            if (isset($location['type']) && $location['type'] === 'Point' && 
-                isset($location['coordinates']) && is_array($location['coordinates']) && 
+            if (isset($location['type']) && $location['type'] === 'Point' &&
+                isset($location['coordinates']) && is_array($location['coordinates']) &&
                 count($location['coordinates']) === 2) {
-                
+
                 $userData['longitude'] = $location['coordinates'][0]; // longitude es el primer elemento
                 $userData['latitude'] = $location['coordinates'][1];  // latitude es el segundo elemento
             }
@@ -278,7 +280,7 @@ class UserController extends BaseController
             if ($user->profile_image) {
                 Storage::disk('public')->delete($user->profile_image);
             }
-            
+
             $image = $request->file('profile_image');
             $imageName = time() . '_' . $image->getClientOriginalName();
             $imagePath = $image->storeAs('profile-images', $imageName, 'public');
@@ -324,7 +326,7 @@ class UserController extends BaseController
         ]);
 
         $role = $request->roles;
-        
+
         $users = User::with(['roles', 'permissions'])
             ->whereHas('roles', function ($query) use ($role) {
                 $query->where('name', $role);
@@ -349,7 +351,7 @@ class UserController extends BaseController
         ]);
 
         $roles = explode(',', $request->roles);
-        
+
         // Validar que todos los roles sean válidos
         $validRoles = ['client', 'manager', 'cobrador', 'admin'];
         foreach ($roles as $role) {
@@ -357,7 +359,7 @@ class UserController extends BaseController
                 return $this->sendError('Rol inválido', "El rol '{$role}' no es válido. Roles válidos: " . implode(', ', $validRoles), 400);
             }
         }
-        
+
         $users = User::with(['roles', 'permissions'])
             ->whereHas('roles', function ($query) use ($roles) {
                 $query->whereIn('name', array_map('trim', $roles));
@@ -391,7 +393,7 @@ class UserController extends BaseController
         $image = $request->file('profile_image');
         $imageName = time() . '_' . $image->getClientOriginalName();
         $imagePath = $image->storeAs('profile-images', $imageName, 'public');
-        
+
         $user->update(['profile_image' => $imagePath]);
         $user->load('roles', 'permissions');
 
@@ -615,14 +617,14 @@ class UserController extends BaseController
         // 1. Clientes asignados directamente al manager
         // 2. Clientes asignados a cobradores que están asignados al manager
         $directClients = $manager->assignedClientsDirectly();
-        
+
         // Obtener IDs de cobradores asignados al manager (filtrar por rol cobrador)
         $cobradorIds = User::whereHas('roles', function ($query) {
                 $query->where('name', 'cobrador');
             })
             ->where('assigned_manager_id', $manager->id)
             ->pluck('id');
-        
+
         // Obtener clientes asignados a esos cobradores
         $cobradorClientsQuery = User::whereHas('roles', function ($query) {
                 $query->where('name', 'client');
@@ -762,4 +764,4 @@ class UserController extends BaseController
 
         return $this->sendResponse($manager, "Manager asignado directamente al cliente {$client->name} obtenido exitosamente");
     }
-} 
+}

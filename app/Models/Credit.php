@@ -16,6 +16,7 @@ class Credit extends Model
         'client_id',
         'created_by',
         'amount',
+        'interest_rate_id',
         'interest_rate',
         'total_amount',
         'balance',
@@ -84,6 +85,14 @@ class Credit extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
+    }
+
+    /**
+     * Interest rate associated to this credit (if any).
+     */
+    public function interestRate(): BelongsTo
+    {
+        return $this->belongsTo(InterestRate::class, 'interest_rate_id');
     }
 
     /**

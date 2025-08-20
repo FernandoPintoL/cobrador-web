@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\Credit;
 use App\Models\User;
+use App\Models\InterestRate;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Events\CreditWaitingListUpdate;
@@ -88,6 +89,7 @@ class CreditController extends BaseController
             'end_date' => 'required|date|after:start_date',
             'status' => 'in:pending_approval,waiting_delivery,active,completed,defaulted,cancelled',
             'scheduled_delivery_date' => 'nullable|date|after:now', // Para managers que quieran programar entrega
+            'interest_rate_id' => 'nullable|exists:interest_rates,id',
         ]);
 
         $currentUser = Auth::user();
@@ -153,11 +155,40 @@ class CreditController extends BaseController
             $initialStatus = 'pending_approval';
         }
 
+        // Determinar tasa de interés según rol y parámetros
+        $interestRateId = null;
+        $interestRateValue = 0.0;
+        if ($currentUser->hasRole('cobrador')) {
+            $activeRate = InterestRate::getActive();
+            if ($activeRate) {
+                $interestRateId = $activeRate->id;
+                $interestRateValue = (float) $activeRate->rate;
+            }
+        } else {
+            if ($request->filled('interest_rate_id')) {
+                $rateModel = InterestRate::find($request->interest_rate_id);
+                if ($rateModel) {
+                    $interestRateId = $rateModel->id;
+                    $interestRateValue = (float) $rateModel->rate;
+                }
+            } elseif ($request->filled('interest_rate')) {
+                $interestRateValue = (float) $request->interest_rate;
+            } else {
+                // Fallback a la activa si existe
+                $activeRate = InterestRate::getActive();
+                if ($activeRate) {
+                    $interestRateId = $activeRate->id;
+                    $interestRateValue = (float) $activeRate->rate;
+                }
+            }
+        }
+
         $credit = Credit::create([
             'client_id' => $request->client_id,
             'created_by' => $currentUser->id,
             'amount' => $request->amount,
-            'interest_rate' => $request->interest_rate ?? 0,
+            'interest_rate_id' => $interestRateId,
+            'interest_rate' => $interestRateValue,
             'total_amount' => $request->total_amount ?? $request->amount,
             'balance' => $request->balance,
             'installment_amount' => $request->installment_amount ?? ($request->amount / 1),
@@ -193,6 +224,7 @@ class CreditController extends BaseController
             'cobrador_id' => 'required|exists:users,id',
             'amount' => 'required|numeric|min:0',
             'interest_rate' => 'nullable|numeric|min:0|max:100',
+                        'interest_rate_id' => 'nullable|exists:interest_rates,id',
             'frequency' => 'required|in:daily,weekly,biweekly,monthly',
             'installment_amount' => 'nullable|numeric|min:0',
             'start_date' => 'required|date',
@@ -234,7 +266,24 @@ class CreditController extends BaseController
         }
 
         // Calcular valores derivados
-        $interestRate = $request->interest_rate ?? 0;
+        $interestRateId = null;
+        $interestRate = 0.0;
+        if ($request->filled('interest_rate_id')) {
+            $rateModel = InterestRate::find($request->interest_rate_id);
+            if ($rateModel) {
+                $interestRateId = $rateModel->id;
+                $interestRate = (float) $rateModel->rate;
+            }
+        } elseif ($request->filled('interest_rate')) {
+            $interestRate = (float) $request->interest_rate;
+        } else {
+            $active = InterestRate::getActive();
+            if ($active) {
+                $interestRateId = $active->id;
+                $interestRate = (float) $active->rate;
+            }
+        }
+
         $totalAmount = $request->amount * (1 + ($interestRate / 100));
         $installmentAmount = $request->installment_amount ?? $this->calculateInstallmentAmount(
             $totalAmount,
@@ -247,6 +296,7 @@ class CreditController extends BaseController
             'client_id' => $request->client_id,
             'created_by' => $currentUser->id,
             'amount' => $request->amount,
+            'interest_rate_id' => $interestRateId,
             'interest_rate' => $interestRate,
             'total_amount' => $totalAmount,
             'balance' => $totalAmount,
