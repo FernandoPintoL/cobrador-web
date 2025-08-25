@@ -30,6 +30,10 @@ class CreditWaitingListController extends Controller
                         'name' => $credit->client->name,
                         'email' => $credit->client->email,
                         'phone' => $credit->client->phone,
+                        'address' => $credit->client->address,
+                        'latitude' => $credit->client->latitude,
+                        'longitude' => $credit->client->longitude,
+                        'client_category' => $credit->client->client_category,
                     ],
                     'created_by' => [
                         'id' => $credit->createdBy->id,

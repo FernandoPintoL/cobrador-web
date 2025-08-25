@@ -167,7 +167,7 @@ El sistema incluye APIs RESTful completas para integración con Flutter:
 - **Balances**: Control de efectivo
 - **Notificaciones**: Sistema de notificaciones
 
-Ver documentación completa en `API_DOCUMENTATION.md`
+Ver documentación completa en `documentaciones/API_DOCUMENTATION.md`, la guía resumida en `documentaciones/DOCUMENTACION_GENERAL.md`, la guía de listados de clientes en `documentaciones/ENDPOINTS_CLIENTES_LISTADO.md`, y la guía para consultar/filtrar créditos por cliente en `documentaciones/ENDPOINTS_CREDITOS_POR_CLIENTE.md`
 
 ## 🎨 Frontend
 

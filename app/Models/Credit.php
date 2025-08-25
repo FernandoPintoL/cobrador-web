@@ -21,6 +21,7 @@ class Credit extends Model
         'total_amount',
         'balance',
         'installment_amount',
+        'total_installments',
         'frequency',
         'start_date',
         'end_date',
@@ -32,6 +33,8 @@ class Credit extends Model
         'delivered_by',
         'delivery_notes',
         'rejection_reason',
+        'latitude',
+        'longitude',
     ];
 
     protected $casts = [
@@ -45,6 +48,9 @@ class Credit extends Model
         'total_amount' => 'decimal:2',
         'balance' => 'decimal:2',
         'installment_amount' => 'decimal:2',
+        'total_installments' => 'integer',
+        'latitude' => 'decimal:8',
+        'longitude' => 'decimal:8',
     ];
 
     /**
@@ -111,6 +117,12 @@ class Credit extends Model
      */
     public function calculateTotalInstallments(): int
     {
+        // Priorizar el valor almacenado si existe (> 0)
+        if (!empty($this->total_installments) && (int)$this->total_installments > 0) {
+            return (int) $this->total_installments;
+        }
+
+        // Fallback al cálculo por fechas/frecuencia para compatibilidad
         $startDate = Carbon::parse($this->start_date);
         $endDate = Carbon::parse($this->end_date);
 
@@ -286,33 +298,91 @@ class Credit extends Model
         $totalInstallments = $this->calculateTotalInstallments();
         $installmentAmount = $this->installment_amount;
 
-        for ($i = 0; $i < $totalInstallments; $i++) {
-            $dueDate = clone $startDate;
+        // Comenzar desde el día siguiente al registro
+        $currentDueDate = $startDate->copy()->addDay();
 
+        for ($i = 0; $i < $totalInstallments; $i++) {
             switch ($this->frequency) {
                 case 'daily':
-                    $dueDate->addDays($i);
+                    // Para pagos diarios, encontrar el siguiente día hábil (lunes a sábado)
+                    $currentDueDate = $this->getNextBusinessDay($currentDueDate);
                     break;
                 case 'weekly':
-                    $dueDate->addWeeks($i);
+                    if ($i === 0) {
+                        // Primera cuota: siguiente día hábil después del start_date
+                        $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                    } else {
+                        // Siguientes cuotas: agregar una semana y ajustar si cae domingo
+                        $currentDueDate = $currentDueDate->copy()->addWeek();
+                        $currentDueDate = $this->adjustIfSunday($currentDueDate);
+                    }
                     break;
                 case 'biweekly':
-                    $dueDate->addWeeks($i * 2);
+                    if ($i === 0) {
+                        // Primera cuota: siguiente día hábil después del start_date
+                        $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                    } else {
+                        // Siguientes cuotas: agregar dos semanas y ajustar si cae domingo
+                        $currentDueDate = $currentDueDate->copy()->addWeeks(2);
+                        $currentDueDate = $this->adjustIfSunday($currentDueDate);
+                    }
                     break;
                 case 'monthly':
-                    $dueDate->addMonths($i);
+                    if ($i === 0) {
+                        // Primera cuota: siguiente día hábil después del start_date
+                        $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                    } else {
+                        // Siguientes cuotas: agregar un mes y ajustar si cae domingo
+                        $currentDueDate = $currentDueDate->copy()->addMonth();
+                        $currentDueDate = $this->adjustIfSunday($currentDueDate);
+                    }
                     break;
             }
 
             $schedule[] = [
                 'installment_number' => $i + 1,
-                'due_date' => $dueDate->format('Y-m-d'),
+                'due_date' => $currentDueDate->format('Y-m-d'),
                 'amount' => $installmentAmount,
                 'status' => 'pending', // Se puede actualizar con pagos reales
             ];
+
+            // Para pagos diarios, avanzar al siguiente día para la próxima iteración
+            if ($this->frequency === 'daily') {
+                $currentDueDate = $currentDueDate->copy()->addDay();
+            }
         }
 
         return $schedule;
+    }
+
+    /**
+     * Get the next business day (Monday to Saturday, excluding Sunday)
+     */
+    private function getNextBusinessDay(Carbon $date): Carbon
+    {
+        $businessDay = $date->copy();
+
+        // Si es domingo (0), avanzar al lunes
+        while ($businessDay->dayOfWeek === Carbon::SUNDAY) {
+            $businessDay->addDay();
+        }
+
+        return $businessDay;
+    }
+
+    /**
+     * Adjust date if it falls on Sunday (move to Monday)
+     */
+    private function adjustIfSunday(Carbon $date): Carbon
+    {
+        $adjustedDate = $date->copy();
+
+        // Si es domingo (0), mover al lunes
+        if ($adjustedDate->dayOfWeek === Carbon::SUNDAY) {
+            $adjustedDate->addDay();
+        }
+
+        return $adjustedDate;
     }
 
     /**

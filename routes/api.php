@@ -1,21 +1,19 @@
-
 <?php
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\UserController;
-use App\Http\Controllers\Api\RouteController;
-use App\Http\Controllers\Api\CreditController;
-use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\CashBalanceController;
-use App\Http\Controllers\Api\NotificationController;
-use App\Http\Controllers\Api\MapController;
-use App\Http\Controllers\Api\DashboardController;
-use App\Http\Controllers\Api\WebSocketNotificationController;
+use App\Http\Controllers\Api\CreditController;
+use App\Http\Controllers\Api\CreditPaymentController;
 use App\Http\Controllers\Api\CreditWaitingListController;
-use App\Http\Controllers\CreditPaymentController;
+use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\InterestRateController;
+use App\Http\Controllers\Api\MapController;
+use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\RouteController;
+use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\WebSocketNotificationController;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -52,6 +50,11 @@ Route::middleware('auth:sanctum')->group(function () {
     ]);
     Route::get('/users/{user}/roles', [UserController::class, 'getRoles'])->name('api.users.roles');
     Route::post('/users/{user}/profile-image', [UserController::class, 'updateProfileImage'])->name('api.users.profile-image');
+    Route::patch('/users/{user}/change-password', [UserController::class, 'changePassword'])->name('api.users.change-password');
+    // Fotos múltiples de usuario (documentos)
+    Route::get('/users/{user}/photos', [UserController::class, 'getPhotos'])->name('api.users.photos.index');
+    Route::post('/users/{user}/photos', [UserController::class, 'uploadPhotos'])->name('api.users.photos.store');
+    Route::delete('/users/{user}/photos/{photo}', [UserController::class, 'deletePhoto'])->name('api.users.photos.destroy');
     Route::get('/users/by-roles', [UserController::class, 'getUsersByRoles'])->name('api.users.by-roles');
     Route::get('/users/by-multiple-roles', [UserController::class, 'getUsersByMultipleRoles'])->name('api.users.by-multiple-roles');
 
@@ -73,6 +76,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/users/{manager}/assign-clients-direct', [UserController::class, 'assignClientsToManager'])->name('api.users.manager.assign-clients-direct');
     Route::delete('/users/{manager}/clients-direct/{client}', [UserController::class, 'removeClientFromManager'])->name('api.users.manager.remove-client-direct');
     Route::get('/users/{client}/manager-direct', [UserController::class, 'getManagerByClient'])->name('api.users.client.manager-direct');
+
+    // Rutas para categorías de clientes
+    Route::get('/client-categories', [UserController::class, 'getClientCategories'])->name('api.client-categories.index');
+    Route::patch('/users/{client}/category', [UserController::class, 'updateClientCategory'])->name('api.users.update-category');
+    Route::get('/clients/by-category', [UserController::class, 'getClientsByCategory'])->name('api.clients.by-category');
+    Route::get('/client-categories/statistics', [UserController::class, 'getClientCategoryStatistics'])->name('api.client-categories.statistics');
+    Route::post('/clients/bulk-update-categories', [UserController::class, 'bulkUpdateClientCategories'])->name('api.clients.bulk-update-categories');
 
     // Rutas
     Route::apiResource('routes', RouteController::class)->names([

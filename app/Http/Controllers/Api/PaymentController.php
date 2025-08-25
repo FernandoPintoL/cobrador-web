@@ -67,6 +67,8 @@ class PaymentController extends BaseController
             'amount' => 'required|numeric|min:0.01',
             'payment_method' => 'required|in:cash,transfer,check,other',
             'payment_date' => 'required|date',
+            'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
         ]);
 
         $currentUser = Auth::user();
@@ -98,7 +100,9 @@ class PaymentController extends BaseController
             'payment_method' => $request->payment_method,
             'payment_date' => $request->payment_date,
             'received_by' => $currentUser->id,
-            'installment_number' => $request->installment_number
+            'installment_number' => $request->installment_number,
+            'latitude' => $request->latitude,
+            'longitude' => $request->longitude,
         ]);
 
         // Actualizar el balance del crédito

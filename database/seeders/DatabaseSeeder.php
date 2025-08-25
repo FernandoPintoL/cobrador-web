@@ -29,6 +29,17 @@ class DatabaseSeeder extends Seeder
         // Asignar rol de admin
         $admin->assignRole('admin');
 
+        // Crear usuario manager por defecto
+        $admin = User::factory()->create([
+            'name' => 'Fernando Manager',
+            'email' => 'fernando@manager.com',
+            'ci' => '8956887',
+            'password' => bcrypt('password'),
+        ]);
+
+        // Asignar rol de manager
+        $admin->assignRole('manager');
+
         // Crear una tasa de interés por defecto
         \App\Models\InterestRate::create([
             'name' => 'Tasa por defecto',
@@ -38,12 +49,12 @@ class DatabaseSeeder extends Seeder
         ]);
 
         // Crear usuarios de ejemplo con CI únicos
-        User::factory(5)->sequence(fn ($sequence) => ['ci' => '10000000' . $sequence->index])->create()->each(function ($user) {
+        /*User::factory(5)->sequence(fn ($sequence) => ['ci' => '10000000' . $sequence->index])->create()->each(function ($user) {
             $user->assignRole('cobrador');
         });
 
         User::factory(10)->sequence(fn ($sequence) => ['ci' => '20000000' . $sequence->index])->create()->each(function ($user) {
             $user->assignRole('client');
-        });
+        });*/
     }
 }

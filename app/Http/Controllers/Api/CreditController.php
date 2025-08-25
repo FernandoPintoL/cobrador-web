@@ -88,8 +88,11 @@ class CreditController extends BaseController
             'start_date' => 'required|date',
             'end_date' => 'required|date|after:start_date',
             'status' => 'in:pending_approval,waiting_delivery,active,completed,defaulted,cancelled',
-            'scheduled_delivery_date' => 'nullable|date|after:now', // Para managers que quieran programar entrega
+            'scheduled_delivery_date' => 'nullable|date|after_or_equal:today', // Permitir misma día si el manager lo autoriza
             'interest_rate_id' => 'nullable|exists:interest_rates,id',
+            'total_installments' => 'nullable|integer|min:1',
+            'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
         ]);
 
         $currentUser = Auth::user();
@@ -146,13 +149,52 @@ class CreditController extends BaseController
         }
         // Los admins pueden crear créditos para cualquier combinación cliente-cobrador
 
-        // Determinar el estado inicial del crédito
+        // 1) Reglas por ranking del cliente (A,B,C): límites de montos y número de créditos activos/en proceso
+        $clientCategory = $client->client_category; // Puede ser null
+        $categoryLimits = [
+            'A' => ['min_amount' => 0,    'max_amount' => 10000, 'max_credits' => 5],
+            'B' => ['min_amount' => 0,    'max_amount' => 5000,  'max_credits' => 3],
+            'C' => ['min_amount' => 0,    'max_amount' => 2000,  'max_credits' => 1],
+        ];
+        if ($clientCategory && isset($categoryLimits[$clientCategory])) {
+            $limits = $categoryLimits[$clientCategory];
+            // Validar monto
+            if ($request->amount < $limits['min_amount'] || $request->amount > $limits['max_amount']) {
+                return $this->sendError(
+                    'Monto no permitido por ranking',
+                    "Para clientes categoría {$clientCategory}, el monto debe estar entre {$limits['min_amount']} y {$limits['max_amount']}",
+                    422
+                );
+            }
+            // Validar cantidad de créditos (pendientes/por entregar/activos)
+            $engagedStatuses = ['pending_approval','waiting_delivery','active'];
+            $currentEngaged = Credit::where('client_id', $client->id)
+                ->whereIn('status', $engagedStatuses)
+                ->count();
+            if ($currentEngaged >= $limits['max_credits']) {
+                return $this->sendError(
+                    'Límite de créditos alcanzado',
+                    "El cliente ya tiene {$currentEngaged} créditos en proceso/activos; máximo permitido para categoría {$clientCategory} es {$limits['max_credits']}",
+                    422
+                );
+            }
+        }
+
+        // 2) Determinar el estado inicial del crédito, con fast-track para manager con cliente directo
+        $isDirectClientOfManager = $currentUser->hasRole('manager') && ($client->assigned_manager_id === $currentUser->id);
+        $forceWaitingDelivery = false;
+
         $initialStatus = 'active'; // Por defecto para compatibilidad
         if ($request->has('status')) {
             $initialStatus = $request->status;
         } elseif ($currentUser->hasRole('manager') || $currentUser->hasRole('cobrador')) {
             // Los managers y cobradores crean créditos en lista de espera por defecto
             $initialStatus = 'pending_approval';
+        }
+        // Fast-track: si manager crea a cliente directo, saltar aprobación
+        if ($isDirectClientOfManager) {
+            $initialStatus = 'waiting_delivery';
+            $forceWaitingDelivery = true;
         }
 
         // Determinar tasa de interés según rol y parámetros
@@ -183,6 +225,27 @@ class CreditController extends BaseController
             }
         }
 
+        // Preparar fechas considerando fast-track
+        $startDate = $request->start_date;
+        $endDate = $request->end_date;
+        $scheduledDeliveryDate = $request->scheduled_delivery_date;
+        if ($forceWaitingDelivery) {
+            $approvedAtNow = now();
+            $startDate = (clone $approvedAtNow)->addDay();
+            // Ajustar end_date si no es posterior a start_date
+            try {
+                $endDt = new \DateTime($endDate);
+                $startDt = new \DateTime($startDate);
+                if ($endDt <= $startDt) {
+                    $endDt = (clone $startDt)->modify('+30 days');
+                    $endDate = $endDt->format('Y-m-d');
+                }
+            } catch (\Exception $e) {
+                $endDate = (new \DateTime($startDate))->modify('+30 days')->format('Y-m-d');
+            }
+            $scheduledDeliveryDate = $scheduledDeliveryDate ?? (clone $approvedAtNow)->addDay();
+        }
+
         $credit = Credit::create([
             'client_id' => $request->client_id,
             'created_by' => $currentUser->id,
@@ -191,13 +254,24 @@ class CreditController extends BaseController
             'interest_rate' => $interestRateValue,
             'total_amount' => $request->total_amount ?? $request->amount,
             'balance' => $request->balance,
-            'installment_amount' => $request->installment_amount ?? ($request->amount / 1),
+            'installment_amount' => $request->installment_amount, // si no se envía, el modelo lo calculará
+            'total_installments' => $request->total_installments ?? 24,
             'frequency' => $request->frequency,
-            'start_date' => $request->start_date,
-            'end_date' => $request->end_date,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
             'status' => $initialStatus,
-            'scheduled_delivery_date' => $request->scheduled_delivery_date, // Para managers
+            'scheduled_delivery_date' => $scheduledDeliveryDate, // Para managers
+            'latitude' => $request->latitude,
+            'longitude' => $request->longitude,
         ]);
+
+        // Si se aplicó fast-track, setear aprobaciones automáticamente
+        if ($forceWaitingDelivery) {
+            $credit->update([
+                'approved_by' => $currentUser->id,
+                'approved_at' => now(),
+            ]);
+        }
 
         $credit->load(['client', 'payments', 'createdBy']);
 
@@ -209,6 +283,8 @@ class CreditController extends BaseController
         $message = 'Crédito creado exitosamente';
         if ($initialStatus === 'pending_approval') {
             $message .= ' (en lista de espera para aprobación)';
+        } elseif ($initialStatus === 'waiting_delivery' && $forceWaitingDelivery) {
+            $message .= ' (bypass de aprobación por manager: listo para entrega)';
         }
 
         return $this->sendResponse($credit, $message);
@@ -229,7 +305,7 @@ class CreditController extends BaseController
             'installment_amount' => 'nullable|numeric|min:0',
             'start_date' => 'required|date',
             'end_date' => 'required|date|after:start_date',
-            'scheduled_delivery_date' => 'nullable|date|after:now',
+            'scheduled_delivery_date' => 'nullable|date|after_or_equal:today',
             'notes' => 'nullable|string|max:1000',
         ]);
 
@@ -652,7 +728,7 @@ class CreditController extends BaseController
         }
 
         $request->validate([
-            'scheduled_delivery_date' => 'nullable|date|after:now',
+            'scheduled_delivery_date' => 'nullable|date|after_or_equal:today',
             'notes' => 'nullable|string|max:1000'
         ]);
 
@@ -661,12 +737,33 @@ class CreditController extends BaseController
             return $this->sendError('Estado inválido', 'El crédito no está pendiente de aprobación', 400);
         }
 
+        // Aprobación: programar entrega y ajustar inicio de cronograma para el día siguiente
+        $approvedAt = now();
+        $newStartDate = (clone $approvedAt)->addDay();
+
+        // Ajustar end_date si fuera necesario (garantizar que sea después de start_date)
+        $newEndDate = $credit->end_date;
+        try {
+            $newEndDateDt = new \DateTime($credit->end_date);
+            $newStartDt = new \DateTime($newStartDate);
+            if ($newEndDateDt <= $newStartDt) {
+                // Si la fecha de fin no es válida, extender un periodo mínimo de 30 días
+                $newEndDateDt = (clone $newStartDt)->modify('+30 days');
+                $newEndDate = $newEndDateDt->format('Y-m-d');
+            }
+        } catch (\Exception $e) {
+            // En caso de formato inválido, establecer 30 días después del nuevo start
+            $newEndDate = (new \DateTime($newStartDate))->modify('+30 days')->format('Y-m-d');
+        }
+
         $credit->update([
             'status' => 'waiting_delivery',
             'approved_by' => $currentUser->id,
-            'approved_at' => now(),
+            'approved_at' => $approvedAt,
             'scheduled_delivery_date' => $request->scheduled_delivery_date ?? now()->addDay(),
             'approval_notes' => $request->notes,
+            'start_date' => $newStartDate,
+            'end_date' => $newEndDate,
         ]);
 
         $credit->load(['client', 'createdBy', 'approvedBy']);

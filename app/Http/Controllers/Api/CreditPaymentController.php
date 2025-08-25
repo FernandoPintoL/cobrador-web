@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Controller;
 use App\Models\Credit;
-use App\Models\Payment;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
 class CreditPaymentController extends Controller
@@ -102,8 +102,9 @@ class CreditPaymentController extends Controller
                     'original_amount' => $credit->amount,
                     'interest_rate' => $credit->interest_rate,
                     'total_amount' => $credit->calculateTotalAmount(),
-                    'installment_amount' => $credit->calculateInstallmentAmount(),
-                    'total_installments' => $credit->calculateTotalInstallments(),
+//                    'installment_amount' => $credit->calculateInstallmentAmount(),
+                    'installment_amount' => $credit->installment_amount,
+                    'total_installments' => $credit->total_installments,
                     'current_balance' => $credit->getCurrentBalance(),
                     'total_paid' => $credit->getTotalPaidAmount(),
                     'pending_installments' => $credit->getPendingInstallments(),

@@ -18,6 +18,18 @@ class User extends Authenticatable
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable, HasRoles, HasApiTokens;
 
+    // Constantes para las categorías de clientes
+    const CLIENT_CATEGORY_VIP = 'A';
+    const CLIENT_CATEGORY_NORMAL = 'B';
+    const CLIENT_CATEGORY_BAD = 'C';
+
+    // Array con las categorías disponibles
+    const CLIENT_CATEGORIES = [
+        self::CLIENT_CATEGORY_VIP => 'Cliente VIP',
+        self::CLIENT_CATEGORY_NORMAL => 'Cliente Normal',
+        self::CLIENT_CATEGORY_BAD => 'Mal Cliente',
+    ];
+
     /**
      * The attributes that are mass assignable.
      *
@@ -35,6 +47,7 @@ class User extends Authenticatable
         'assigned_cobrador_id',
         'assigned_manager_id',
         'ci', // Nuevo campo para el CI
+        'client_category', // Nuevo campo para la categoría del cliente
     ];
 
     /**
@@ -238,15 +251,87 @@ class User extends Authenticatable
     }
 
     /**
-     * Get the profile image URL.
+     * Get all available client categories.
      */
-    public function getProfileImageUrlAttribute(): string
+    public static function getClientCategories(): array
     {
-        if ($this->profile_image) {
-            return asset('storage/' . $this->profile_image);
-        }
+        return self::CLIENT_CATEGORIES;
+    }
 
-        // Retorna una imagen por defecto
-        return asset('images/default-avatar.png');
+    /**
+     * Get the client category name.
+     */
+    public function getClientCategoryNameAttribute(): ?string
+    {
+        if ($this->client_category && isset(self::CLIENT_CATEGORIES[$this->client_category])) {
+            return self::CLIENT_CATEGORIES[$this->client_category];
+        }
+        return null;
+    }
+
+    /**
+     * Check if the user is a VIP client.
+     */
+    public function isVipClient(): bool
+    {
+        return $this->hasRole('client') && $this->client_category === self::CLIENT_CATEGORY_VIP;
+    }
+
+    /**
+     * Check if the user is a normal client.
+     */
+    public function isNormalClient(): bool
+    {
+        return $this->hasRole('client') && $this->client_category === self::CLIENT_CATEGORY_NORMAL;
+    }
+
+    /**
+     * Check if the user is a bad client.
+     */
+    public function isBadClient(): bool
+    {
+        return $this->hasRole('client') && $this->client_category === self::CLIENT_CATEGORY_BAD;
+    }
+
+    /**
+     * Scope to filter clients by category.
+     */
+    public function scopeWithClientCategory($query, string $category)
+    {
+        return $query->whereHas('roles', function ($q) {
+            $q->where('name', 'client');
+        })->where('client_category', $category);
+    }
+
+    /**
+     * Scope to get only VIP clients.
+     */
+    public function scopeVipClients($query)
+    {
+        return $query->withClientCategory(self::CLIENT_CATEGORY_VIP);
+    }
+
+    /**
+     * Scope to get only normal clients.
+     */
+    public function scopeNormalClients($query)
+    {
+        return $query->withClientCategory(self::CLIENT_CATEGORY_NORMAL);
+    }
+
+    /**
+     * Scope to get only bad clients.
+     */
+    public function scopeBadClients($query)
+    {
+        return $query->withClientCategory(self::CLIENT_CATEGORY_BAD);
+    }
+
+    /**
+     * Get photos associated with the user.
+     */
+    public function photos(): HasMany
+    {
+        return $this->hasMany(UserPhoto::class);
     }
 }
