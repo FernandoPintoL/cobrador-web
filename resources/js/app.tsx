@@ -4,6 +4,19 @@ import { createInertiaApp } from '@inertiajs/react';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createRoot } from 'react-dom/client';
 import { initializeTheme } from './hooks/use-appearance';
+import { configureEcho } from '@laravel/echo-react';
+
+configureEcho({
+    broadcaster: 'reverb',
+    // These are optional; when omitted, Echo uses sane defaults.
+    // We enable them to be Railway-friendly via Vite envs.
+    key: import.meta.env.VITE_REVERB_APP_KEY,
+    wsHost: import.meta.env.VITE_REVERB_HOST ?? (typeof window !== 'undefined' ? window.location.hostname : undefined),
+    wsPort: Number(import.meta.env.VITE_REVERB_PORT) || 80,
+    wssPort: Number(import.meta.env.VITE_REVERB_PORT) || 443,
+    forceTLS: (import.meta.env.VITE_REVERB_FORCE_TLS ?? 'true') === 'true' || (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
+    enabledTransports: ['ws', 'wss'],
+});
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 

@@ -2,13 +2,12 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\CreditWaitingListUpdate;
 use App\Models\Credit;
-use App\Models\User;
 use App\Models\InterestRate;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Events\CreditWaitingListUpdate;
-use App\Events\CreditRequiresAttention;
 
 class CreditController extends BaseController
 {
@@ -19,39 +18,52 @@ class CreditController extends BaseController
     {
         $query = Credit::with(['client', 'payments', 'createdBy']);
 
-        // Si el usuario es cobrador, solo mostrar créditos de sus clientes asignados
+        // Visibilidad x rol
         $currentUser = Auth::user();
         if ($currentUser) {
             if ($currentUser->hasRole('cobrador')) {
-                // Solo créditos de clientes asignados al cobrador
-                $query->whereHas('client', function ($q) use ($currentUser) {
-                    $q->where('assigned_cobrador_id', $currentUser->id);
+                // Créditos creados por el cobrador O de clientes asignados a él
+                $query->where(function ($q) use ($currentUser) {
+                    $q->where('created_by', $currentUser->id)
+                        ->orWhereHas('client', function ($q2) use ($currentUser) {
+                            $q2->where('assigned_cobrador_id', $currentUser->id);
+                        });
                 });
             } elseif ($currentUser->hasRole('manager')) {
-                // Créditos de clientes asignados directamente al manager
-                $directClientIds = User::whereHas('roles', function($q) {
-                        $q->where('name', 'client');
-                    })
+                // Clientes directos del manager
+                $directClientIds = User::whereHas('roles', function ($q) {
+                    $q->where('name', 'client');
+                })
                     ->where('assigned_manager_id', $currentUser->id)
                     ->pluck('id')->toArray();
-                // Cobradores asignados al manager
-                $cobradorIds = User::role('cobrador')->where('assigned_manager_id', $currentUser->id)->pluck('id')->toArray();
-                // Clientes de los cobradores
-                $cobradorClientIds = User::whereHas('roles', function($q) {
-                        $q->where('name', 'client');
-                    })
+
+                // Cobradores bajo el manager
+                $cobradorIds = User::role('cobrador')
+                    ->where('assigned_manager_id', $currentUser->id)
+                    ->pluck('id')->toArray();
+
+                // Clientes de esos cobradores
+                $cobradorClientIds = User::whereHas('roles', function ($q) {
+                    $q->where('name', 'client');
+                })
                     ->whereIn('assigned_cobrador_id', $cobradorIds)
                     ->pluck('id')->toArray();
-                // Unir todos los clientes
+
                 $allClientIds = array_unique(array_merge($directClientIds, $cobradorClientIds));
-                $query->whereIn('client_id', $allClientIds);
+
+                // Créditos creados por el manager, por sus cobradores, O de sus clientes (directos o vía cobradores)
+                $query->where(function ($q) use ($currentUser, $allClientIds, $cobradorIds) {
+                    $q->where('created_by', $currentUser->id)
+                        ->orWhereIn('created_by', $cobradorIds)
+                        ->orWhereIn('client_id', $allClientIds);
+                });
             }
         }
 
         // Filtros adicionales
         $query->when($request->client_id, function ($query, $clientId) {
-                $query->where('client_id', $clientId);
-            })
+            $query->where('client_id', $clientId);
+        })
             ->when($request->status, function ($query, $status) {
                 $query->where('status', $status);
             })
@@ -67,9 +79,51 @@ class CreditController extends BaseController
                         $q->where('assigned_cobrador_id', $cobradorId);
                     });
                 }
+            })
+            // Frecuencia (uno o varios valores separados por coma)
+            ->when($request->frequency, function ($query, $frequency) {
+                $values = is_array($frequency) ? $frequency : explode(',', (string) $frequency);
+                $values = array_filter(array_map('trim', $values));
+                if (! empty($values)) {
+                    $query->whereIn('frequency', $values);
+                }
+            })
+            // Rango de fechas (inicio y fin)
+            ->when($request->start_date_from, function ($query, $date) {
+                $query->whereDate('start_date', '>=', $date);
+            })
+            ->when($request->start_date_to, function ($query, $date) {
+                $query->whereDate('start_date', '<=', $date);
+            })
+            ->when($request->end_date_from, function ($query, $date) {
+                $query->whereDate('end_date', '>=', $date);
+            })
+            ->when($request->end_date_to, function ($query, $date) {
+                $query->whereDate('end_date', '<=', $date);
+            })
+            // Rango de montos (amount, total_amount, balance)
+            ->when($request->amount_min, function ($query, $value) {
+                $query->where('amount', '>=', (float) $value);
+            })
+            ->when($request->amount_max, function ($query, $value) {
+                $query->where('amount', '<=', (float) $value);
+            })
+            ->when($request->total_amount_min, function ($query, $value) {
+                $query->where('total_amount', '>=', (float) $value);
+            })
+            ->when($request->total_amount_max, function ($query, $value) {
+                $query->where('total_amount', '<=', (float) $value);
+            })
+            ->when($request->balance_min, function ($query, $value) {
+                $query->where('balance', '>=', (float) $value);
+            })
+            ->when($request->balance_max, function ($query, $value) {
+                $query->where('balance', '<=', (float) $value);
             });
 
-        $credits = $query->paginate(15);
+        $perPage = (int) ($request->get('per_page', 15));
+        $perPage = $perPage > 0 ? $perPage : 15;
+        $credits = $query->paginate($perPage);
 
         return $this->sendResponse($credits);
     }
@@ -89,6 +143,7 @@ class CreditController extends BaseController
             'end_date' => 'required|date|after:start_date',
             'status' => 'in:pending_approval,waiting_delivery,active,completed,defaulted,cancelled',
             'scheduled_delivery_date' => 'nullable|date|after_or_equal:today', // Permitir misma día si el manager lo autoriza
+            'immediate_delivery_requested' => 'sometimes|boolean',
             'interest_rate_id' => 'nullable|exists:interest_rates,id',
             'total_installments' => 'nullable|integer|min:1',
             'latitude' => 'nullable|numeric|between:-90,90',
@@ -99,7 +154,7 @@ class CreditController extends BaseController
 
         // Verificar que el cliente exista y tenga rol de cliente
         $client = User::findOrFail($request->client_id);
-        if (!$client->hasRole('client')) {
+        if (! $client->hasRole('client')) {
             return $this->sendError('Cliente no válido', 'El usuario especificado no es un cliente', 400);
         }
 
@@ -107,7 +162,7 @@ class CreditController extends BaseController
         $targetCobrador = null;
         if ($request->has('cobrador_id')) {
             $targetCobrador = User::findOrFail($request->cobrador_id);
-            if (!$targetCobrador->hasRole('cobrador')) {
+            if (! $targetCobrador->hasRole('cobrador')) {
                 return $this->sendError('Cobrador no válido', 'El usuario especificado no es un cobrador', 400);
             }
         }
@@ -126,10 +181,9 @@ class CreditController extends BaseController
             // Los managers pueden crear créditos para:
             // 1. Clientes asignados directamente a ellos
             // 2. Clientes de cobradores bajo su supervisión
-
             $isDirectlyAssigned = $client->assigned_manager_id === $currentUser->id;
             $isAssignedThroughCobrador = $client->assignedCobrador &&
-                                       $client->assignedCobrador->assigned_manager_id === $currentUser->id;
+                $client->assignedCobrador->assigned_manager_id === $currentUser->id;
 
             if ($targetCobrador) {
                 // Si especifica cobrador, debe estar asignado al manager
@@ -142,19 +196,29 @@ class CreditController extends BaseController
                 }
             } else {
                 // Si no especifica cobrador, verificar acceso directo o indirecto
-                if (!$isDirectlyAssigned && !$isAssignedThroughCobrador) {
+                if (! $isDirectlyAssigned && ! $isAssignedThroughCobrador) {
                     return $this->sendError('No autorizado', 'El cliente debe estar asignado directamente a ti o a un cobrador bajo tu supervisión', 403);
                 }
             }
         }
         // Los admins pueden crear créditos para cualquier combinación cliente-cobrador
 
-        // 1) Reglas por ranking del cliente (A,B,C): límites de montos y número de créditos activos/en proceso
+        // 1) Reglas por ranking del cliente (A,B,C): y bloqueo total para categoría C
         $clientCategory = $client->client_category; // Puede ser null
+
+        // Validación de categoría desde el modelo
+        if (! $client->canReceiveNewCredit()) {
+            return $this->sendError(
+                'Cliente en categoría C',
+                $client->creditCreationBlockedReason() ?? 'No se pueden asignar nuevos créditos según la categoría del cliente.',
+                422
+            );
+        }
+
+        // Límites generales por categoría (A/B)
         $categoryLimits = [
-            'A' => ['min_amount' => 0,    'max_amount' => 10000, 'max_credits' => 5],
-            'B' => ['min_amount' => 0,    'max_amount' => 5000,  'max_credits' => 3],
-            'C' => ['min_amount' => 0,    'max_amount' => 2000,  'max_credits' => 1],
+            'A' => ['min_amount' => 0, 'max_amount' => 10000, 'max_credits' => 5],
+            'B' => ['min_amount' => 0, 'max_amount' => 5000, 'max_credits' => 3],
         ];
         if ($clientCategory && isset($categoryLimits[$clientCategory])) {
             $limits = $categoryLimits[$clientCategory];
@@ -167,7 +231,7 @@ class CreditController extends BaseController
                 );
             }
             // Validar cantidad de créditos (pendientes/por entregar/activos)
-            $engagedStatuses = ['pending_approval','waiting_delivery','active'];
+            $engagedStatuses = ['pending_approval', 'waiting_delivery', 'active'];
             $currentEngaged = Credit::where('client_id', $client->id)
                 ->whereIn('status', $engagedStatuses)
                 ->count();
@@ -261,6 +325,7 @@ class CreditController extends BaseController
             'end_date' => $endDate,
             'status' => $initialStatus,
             'scheduled_delivery_date' => $scheduledDeliveryDate, // Para managers
+            'immediate_delivery_requested' => (bool) $request->boolean('immediate_delivery_requested'),
             'latitude' => $request->latitude,
             'longitude' => $request->longitude,
         ]);
@@ -277,7 +342,7 @@ class CreditController extends BaseController
 
         // Disparar evento si el crédito fue creado en lista de espera
         if ($initialStatus === 'pending_approval') {
-//            event(new CreditWaitingListUpdate($credit, 'created', $currentUser));
+            event(new CreditWaitingListUpdate($credit, 'created', $currentUser));
         }
 
         $message = 'Crédito creado exitosamente';
@@ -300,7 +365,7 @@ class CreditController extends BaseController
             'cobrador_id' => 'required|exists:users,id',
             'amount' => 'required|numeric|min:0',
             'interest_rate' => 'nullable|numeric|min:0|max:100',
-                        'interest_rate_id' => 'nullable|exists:interest_rates,id',
+            'interest_rate_id' => 'nullable|exists:interest_rates,id',
             'frequency' => 'required|in:daily,weekly,biweekly,monthly',
             'installment_amount' => 'nullable|numeric|min:0',
             'start_date' => 'required|date',
@@ -312,7 +377,7 @@ class CreditController extends BaseController
         $currentUser = Auth::user();
 
         // Solo managers y admins pueden usar este endpoint
-        if (!$currentUser->hasRole(['manager', 'admin'])) {
+        if (! $currentUser->hasRole(['manager', 'admin'])) {
             return $this->sendError('No autorizado', 'Solo managers y administradores pueden crear créditos en lista de espera', 403);
         }
 
@@ -320,11 +385,11 @@ class CreditController extends BaseController
         $client = User::findOrFail($request->client_id);
         $cobrador = User::findOrFail($request->cobrador_id);
 
-        if (!$client->hasRole('client')) {
+        if (! $client->hasRole('client')) {
             return $this->sendError('Cliente no válido', 'El usuario especificado no es un cliente', 400);
         }
 
-        if (!$cobrador->hasRole('cobrador')) {
+        if (! $cobrador->hasRole('cobrador')) {
             return $this->sendError('Cobrador no válido', 'El usuario especificado no es un cobrador', 400);
         }
 
@@ -398,7 +463,7 @@ class CreditController extends BaseController
                 'name' => $cobrador->name,
                 'email' => $cobrador->email,
                 'phone' => $cobrador->phone,
-            ]
+            ],
         ], 'Crédito creado en lista de espera exitosamente');
     }
 
@@ -446,6 +511,7 @@ class CreditController extends BaseController
         }
 
         $credit->load(['client', 'payments', 'createdBy']);
+
         return $this->sendResponse($credit);
     }
 
@@ -482,6 +548,16 @@ class CreditController extends BaseController
             }
         }
 
+        // Validación de categoría desde el modelo (update/reasignación)
+        $targetClient = User::findOrFail($request->client_id);
+        if (! $targetClient->canReceiveNewCredit()) {
+            return $this->sendError(
+                'Cliente en categoría C',
+                $targetClient->creditCreationBlockedReason() ?? 'No se pueden asignar o actualizar créditos según la categoría del cliente.',
+                422
+            );
+        }
+
         $credit->update([
             'client_id' => $request->client_id,
             'amount' => $request->amount,
@@ -512,29 +588,80 @@ class CreditController extends BaseController
         }
 
         $credit->delete();
+
         return $this->sendResponse([], 'Crédito eliminado exitosamente');
     }
 
     /**
      * Get credits by client.
      */
-    public function getByClient(User $client)
+    public function getByClient(Request $request, User $client)
     {
         $currentUser = Auth::user();
 
         // Verificar que el usuario especificado sea un cliente
-        if (!$client->hasRole('client')) {
+        if (! $client->hasRole('client')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un cliente', 400);
         }
 
-        // Si el usuario es cobrador, verificar que el cliente esté asignado a él
+        // Autorización por rol
         if ($currentUser->hasRole('cobrador')) {
             if ($client->assigned_cobrador_id !== $currentUser->id) {
                 return $this->sendError('No autorizado', 'No tienes acceso a los créditos de este cliente', 403);
             }
+        } elseif ($currentUser->hasRole('manager')) {
+            // El manager debe ser el asignado directo del cliente o el manager del cobrador asignado al cliente
+            $isDirect = $client->assigned_manager_id === $currentUser->id;
+            $isViaCobrador = $client->assigned_cobrador_id && User::where('id', $client->assigned_cobrador_id)
+                ->where('assigned_manager_id', $currentUser->id)
+                ->exists();
+            if (! ($isDirect || $isViaCobrador)) {
+                return $this->sendError('No autorizado', 'Cliente no pertenece a tu equipo', 403);
+            }
         }
 
-        $credits = $client->credits()->with(['payments', 'createdBy'])->get();
+        $query = $client->credits()->with(['payments', 'createdBy']);
+
+        // Filtros
+        $query->when($request->status, function ($q, $status) {
+            $q->where('status', $status);
+        })
+            ->when($request->frequency, function ($q, $frequency) {
+                $values = is_array($frequency) ? $frequency : explode(',', (string) $frequency);
+                $values = array_filter(array_map('trim', $values));
+                if (! empty($values)) {
+                    $q->whereIn('frequency', $values);
+                }
+            })
+            ->when($request->start_date_from, function ($q, $date) {
+                $q->whereDate('start_date', '>=', $date);
+            })
+            ->when($request->start_date_to, function ($q, $date) {
+                $q->whereDate('start_date', '<=', $date);
+            })
+            ->when($request->end_date_from, function ($q, $date) {
+                $q->whereDate('end_date', '>=', $date);
+            })
+            ->when($request->end_date_to, function ($q, $date) {
+                $q->whereDate('end_date', '<=', $date);
+            })
+            ->when($request->amount_min, function ($q, $value) {
+                $q->where('amount', '>=', (float) $value);
+            })
+            ->when($request->amount_max, function ($q, $value) {
+                $q->where('amount', '<=', (float) $value);
+            })
+            ->when($request->balance_min, function ($q, $value) {
+                $q->where('balance', '>=', (float) $value);
+            })
+            ->when($request->balance_max, function ($q, $value) {
+                $q->where('balance', '<=', (float) $value);
+            });
+
+        $perPage = (int) ($request->get('per_page', 50));
+        $perPage = $perPage > 0 ? $perPage : 50;
+        $credits = $query->paginate($perPage);
+
         return $this->sendResponse($credits, "Créditos del cliente {$client->name} obtenidos exitosamente");
     }
 
@@ -553,6 +680,7 @@ class CreditController extends BaseController
         }
 
         $remaining = $credit->getRemainingInstallments();
+
         return $this->sendResponse(['remaining_installments' => $remaining]);
     }
 
@@ -564,12 +692,12 @@ class CreditController extends BaseController
         $currentUser = Auth::user();
 
         // Solo admins y managers pueden usar este endpoint
-        if (!($currentUser->hasRole('admin') || $currentUser->hasRole('manager'))) {
+        if (! ($currentUser->hasRole('admin') || $currentUser->hasRole('manager'))) {
             return $this->sendError('No autorizado', 'No tienes permisos para realizar esta acción', 403);
         }
 
         // Verificar que el usuario especificado sea un cobrador
-        if (!$cobrador->hasRole('cobrador')) {
+        if (! $cobrador->hasRole('cobrador')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un cobrador', 400);
         }
 
@@ -580,15 +708,48 @@ class CreditController extends BaseController
 
         // Filtros adicionales
         $query->when($request->status, function ($query, $status) {
-                $query->where('status', $status);
-            })
+            $query->where('status', $status);
+        })
             ->when($request->search, function ($query, $search) {
                 $query->whereHas('client', function ($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%");
                 });
+            })
+            ->when($request->frequency, function ($query, $frequency) {
+                $values = is_array($frequency) ? $frequency : explode(',', (string) $frequency);
+                $values = array_filter(array_map('trim', $values));
+                if (! empty($values)) {
+                    $query->whereIn('frequency', $values);
+                }
+            })
+            ->when($request->start_date_from, function ($query, $date) {
+                $query->whereDate('start_date', '>=', $date);
+            })
+            ->when($request->start_date_to, function ($query, $date) {
+                $query->whereDate('start_date', '<=', $date);
+            })
+            ->when($request->end_date_from, function ($query, $date) {
+                $query->whereDate('end_date', '>=', $date);
+            })
+            ->when($request->end_date_to, function ($query, $date) {
+                $query->whereDate('end_date', '<=', $date);
+            })
+            ->when($request->amount_min, function ($query, $value) {
+                $query->where('amount', '>=', (float) $value);
+            })
+            ->when($request->amount_max, function ($query, $value) {
+                $query->where('amount', '<=', (float) $value);
+            })
+            ->when($request->balance_min, function ($query, $value) {
+                $query->where('balance', '>=', (float) $value);
+            })
+            ->when($request->balance_max, function ($query, $value) {
+                $query->where('balance', '<=', (float) $value);
             });
 
-        $credits = $query->paginate($request->get('per_page', 15));
+        $perPage = (int) ($request->get('per_page', 15));
+        $perPage = $perPage > 0 ? $perPage : 15;
+        $credits = $query->paginate($perPage);
 
         return $this->sendResponse($credits, "Créditos del cobrador {$cobrador->name} obtenidos exitosamente");
     }
@@ -606,12 +767,12 @@ class CreditController extends BaseController
         }
 
         // Admins y managers pueden ver estadísticas de cualquier cobrador
-        if (!($currentUser->hasRole('admin') || $currentUser->hasRole('manager') || $currentUser->id === $cobrador->id)) {
+        if (! ($currentUser->hasRole('admin') || $currentUser->hasRole('manager') || $currentUser->id === $cobrador->id)) {
             return $this->sendError('No autorizado', 'No tienes permisos para realizar esta acción', 403);
         }
 
         // Verificar que el usuario especificado sea un cobrador
-        if (!$cobrador->hasRole('cobrador')) {
+        if (! $cobrador->hasRole('cobrador')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un cobrador', 400);
         }
 
@@ -651,24 +812,24 @@ class CreditController extends BaseController
     {
         $currentUser = Auth::user();
         // Solo admins y el propio manager pueden ver estas estadísticas
-        if (!($currentUser->hasRole('admin') || ($currentUser->hasRole('manager') && $currentUser->id === $manager->id))) {
+        if (! ($currentUser->hasRole('admin') || ($currentUser->hasRole('manager') && $currentUser->id === $manager->id))) {
             return $this->sendError('No autorizado', 'No tienes permisos para realizar esta acción', 403);
         }
-        if (!$manager->hasRole('manager')) {
+        if (! $manager->hasRole('manager')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
         }
         // Obtener IDs de clientes directos
-        $directClientIds = User::whereHas('roles', function($q) {
-                $q->where('name', 'client');
-            })
+        $directClientIds = User::whereHas('roles', function ($q) {
+            $q->where('name', 'client');
+        })
             ->where('assigned_manager_id', $manager->id)
             ->pluck('id')->toArray();
         // Cobradores asignados al manager
         $cobradorIds = User::role('cobrador')->where('assigned_manager_id', $manager->id)->pluck('id')->toArray();
         // Clientes de los cobradores
-        $cobradorClientIds = User::whereHas('roles', function($q) {
-                $q->where('name', 'client');
-            })
+        $cobradorClientIds = User::whereHas('roles', function ($q) {
+            $q->where('name', 'client');
+        })
             ->whereIn('assigned_cobrador_id', $cobradorIds)
             ->pluck('id')->toArray();
         // Unir todos los clientes
@@ -682,6 +843,7 @@ class CreditController extends BaseController
             'total_amount' => Credit::whereIn('client_id', $allClientIds)->sum('amount'),
             'total_balance' => Credit::whereIn('client_id', $allClientIds)->sum('balance'),
         ];
+
         return $this->sendResponse($stats, "Estadísticas de créditos del manager {$manager->name} obtenidas exitosamente");
     }
 
@@ -706,8 +868,8 @@ class CreditController extends BaseController
         $query->where(function ($q) {
             // Créditos vencidos (fecha de fin pasada)
             $q->where('end_date', '<', now())
-              // O créditos que vencen en los próximos 7 días
-              ->orWhere('end_date', '<=', now()->addDays(7));
+                // O créditos que vencen en los próximos 7 días
+                ->orWhere('end_date', '<=', now()->addDays(7));
         });
 
         $credits = $query->paginate($request->get('per_page', 15));
@@ -716,177 +878,83 @@ class CreditController extends BaseController
     }
 
     /**
-     * Approve a credit for delivery
+     * DEBUG: Método temporal para debuggear problema de listado de cobrador
      */
-    public function approve(Request $request, Credit $credit)
+    public function debugCobradorCredits(Request $request)
     {
         $currentUser = Auth::user();
 
-        // Solo managers y admins pueden aprobar créditos
-        if (!$currentUser->hasRole(['manager', 'admin'])) {
-            return $this->sendError('No autorizado', 'Solo managers y administradores pueden aprobar créditos', 403);
+        if (! $currentUser) {
+            return response()->json([
+                'error' => 'Usuario no autenticado',
+                'debug' => [
+                    'auth_user' => null,
+                    'headers' => $request->headers->all(),
+                ],
+            ], 401);
         }
 
-        $request->validate([
-            'scheduled_delivery_date' => 'nullable|date|after_or_equal:today',
-            'notes' => 'nullable|string|max:1000'
+        $debugInfo = [
+            'authenticated_user' => [
+                'id' => $currentUser->id,
+                'name' => $currentUser->name,
+                'email' => $currentUser->email,
+                'roles' => $currentUser->roles->pluck('name')->toArray(),
+            ],
+            'request_params' => $request->all(),
+            'is_cobrador' => $currentUser->hasRole('cobrador'),
+        ];
+
+        if (! $currentUser->hasRole('cobrador')) {
+            return response()->json([
+                'error' => 'Usuario no es cobrador',
+                'debug' => $debugInfo,
+            ], 403);
+        }
+
+        // Ejecutar la misma consulta que en index()
+        $query = Credit::with(['client', 'payments', 'createdBy'])
+            ->where(function ($q) use ($currentUser) {
+                $q->where('created_by', $currentUser->id)
+                    ->orWhereHas('client', function ($q2) use ($currentUser) {
+                        $q2->where('assigned_cobrador_id', $currentUser->id);
+                    });
+            });
+
+        // Aplicar filtros si vienen en la request
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        $credits = $query->get();
+
+        $debugInfo['query_results'] = [
+            'total_found' => $credits->count(),
+            'credits' => $credits->map(function ($credit) use ($currentUser) {
+                return [
+                    'id' => $credit->id,
+                    'client_name' => $credit->client->name,
+                    'amount' => $credit->amount,
+                    'status' => $credit->status,
+                    'created_by' => $credit->created_by,
+                    'created_by_name' => $credit->createdBy->name ?? 'N/A',
+                    'client_assigned_cobrador_id' => $credit->client->assigned_cobrador_id,
+                    'matches_created_by' => $credit->created_by == $currentUser->id,
+                    'matches_assigned_client' => $credit->client->assigned_cobrador_id == $currentUser->id,
+                ];
+            }),
+        ];
+
+        // También obtener info adicional del cobrador
+        $debugInfo['cobrador_info'] = [
+            'assigned_clients_count' => $currentUser->assignedClients()->count(),
+            'assigned_clients' => $currentUser->assignedClients()->pluck('name', 'id')->toArray(),
+            'credits_created_directly' => Credit::where('created_by', $currentUser->id)->count(),
+        ];
+
+        return response()->json([
+            'success' => true,
+            'debug' => $debugInfo,
         ]);
-
-        // Verificar que el crédito esté en estado pending_approval
-        if ($credit->status !== 'pending_approval') {
-            return $this->sendError('Estado inválido', 'El crédito no está pendiente de aprobación', 400);
-        }
-
-        // Aprobación: programar entrega y ajustar inicio de cronograma para el día siguiente
-        $approvedAt = now();
-        $newStartDate = (clone $approvedAt)->addDay();
-
-        // Ajustar end_date si fuera necesario (garantizar que sea después de start_date)
-        $newEndDate = $credit->end_date;
-        try {
-            $newEndDateDt = new \DateTime($credit->end_date);
-            $newStartDt = new \DateTime($newStartDate);
-            if ($newEndDateDt <= $newStartDt) {
-                // Si la fecha de fin no es válida, extender un periodo mínimo de 30 días
-                $newEndDateDt = (clone $newStartDt)->modify('+30 days');
-                $newEndDate = $newEndDateDt->format('Y-m-d');
-            }
-        } catch (\Exception $e) {
-            // En caso de formato inválido, establecer 30 días después del nuevo start
-            $newEndDate = (new \DateTime($newStartDate))->modify('+30 days')->format('Y-m-d');
-        }
-
-        $credit->update([
-            'status' => 'waiting_delivery',
-            'approved_by' => $currentUser->id,
-            'approved_at' => $approvedAt,
-            'scheduled_delivery_date' => $request->scheduled_delivery_date ?? now()->addDay(),
-            'approval_notes' => $request->notes,
-            'start_date' => $newStartDate,
-            'end_date' => $newEndDate,
-        ]);
-
-        $credit->load(['client', 'createdBy', 'approvedBy']);
-
-        // Disparar evento de aprobación
-        event(new CreditWaitingListUpdate($credit, 'approved', $currentUser));
-
-        return $this->sendResponse($credit, 'Crédito aprobado exitosamente');
-    }
-
-    /**
-     * Reject a credit
-     */
-    public function reject(Request $request, Credit $credit)
-    {
-        $currentUser = Auth::user();
-
-        // Solo managers y admins pueden rechazar créditos
-        if (!$currentUser->hasRole(['manager', 'admin'])) {
-            return $this->sendError('No autorizado', 'Solo managers y administradores pueden rechazar créditos', 403);
-        }
-
-        $request->validate([
-            'reason' => 'required|string|max:1000'
-        ]);
-
-        // Verificar que el crédito esté en estado pending_approval
-        if ($credit->status !== 'pending_approval') {
-            return $this->sendError('Estado inválido', 'El crédito no está pendiente de aprobación', 400);
-        }
-
-        $credit->update([
-            'status' => 'rejected',
-            'rejected_by' => $currentUser->id,
-            'rejected_at' => now(),
-            'rejection_reason' => $request->reason,
-        ]);
-
-        $credit->load(['client', 'createdBy']);
-
-        // Disparar evento de rechazo
-        event(new CreditWaitingListUpdate($credit, 'rejected', $currentUser));
-
-        return $this->sendResponse($credit, 'Crédito rechazado exitosamente');
-    }
-
-    /**
-     * Deliver credit to client (activate it)
-     */
-    public function deliver(Request $request, Credit $credit)
-    {
-        $currentUser = Auth::user();
-
-        // Solo cobradores, managers y admins pueden entregar créditos
-        if (!$currentUser->hasRole(['cobrador', 'manager', 'admin'])) {
-            return $this->sendError('No autorizado', 'No tienes permisos para entregar créditos', 403);
-        }
-
-        $request->validate([
-            'delivery_notes' => 'nullable|string|max:1000'
-        ]);
-
-        // Verificar que el crédito esté en estado waiting_delivery
-        if ($credit->status !== 'waiting_delivery') {
-            return $this->sendError('Estado inválido', 'El crédito no está esperando entrega', 400);
-        }
-
-        // Si es cobrador, verificar que el cliente esté asignado a él
-        if ($currentUser->hasRole('cobrador')) {
-            if ($credit->client->assigned_cobrador_id !== $currentUser->id) {
-                return $this->sendError('No autorizado', 'No puedes entregar créditos de clientes que no tienes asignados', 403);
-            }
-        }
-
-        $credit->update([
-            'status' => 'active',
-            'delivered_by' => $currentUser->id,
-            'delivered_at' => now(),
-            'delivery_notes' => $request->delivery_notes,
-        ]);
-
-        $credit->load(['client', 'createdBy', 'deliveredBy']);
-
-        // Disparar evento de entrega
-        event(new CreditWaitingListUpdate($credit, 'delivered', $currentUser));
-
-        return $this->sendResponse($credit, 'Crédito entregado al cliente exitosamente');
-    }
-
-    /**
-     * Reschedule delivery date
-     */
-    public function reschedule(Request $request, Credit $credit)
-    {
-        $currentUser = Auth::user();
-
-        // Solo managers y admins pueden reprogramar entregas
-        if (!$currentUser->hasRole(['manager', 'admin'])) {
-            return $this->sendError('No autorizado', 'Solo managers y administradores pueden reprogramar entregas', 403);
-        }
-
-        $request->validate([
-            'new_delivery_date' => 'required|date|after:now',
-            'reason' => 'nullable|string|max:500'
-        ]);
-
-        // Verificar que el crédito esté en estado waiting_delivery
-        if ($credit->status !== 'waiting_delivery') {
-            return $this->sendError('Estado inválido', 'El crédito no está esperando entrega', 400);
-        }
-
-        $credit->update([
-            'scheduled_delivery_date' => $request->new_delivery_date,
-            'rescheduled_by' => $currentUser->id,
-            'rescheduled_at' => now(),
-            'reschedule_reason' => $request->reason,
-        ]);
-
-        $credit->load(['client', 'createdBy']);
-
-        // Disparar evento de reprogramación
-        event(new CreditWaitingListUpdate($credit, 'rescheduled', $currentUser));
-
-        return $this->sendResponse($credit, 'Fecha de entrega reprogramada exitosamente');
     }
 }

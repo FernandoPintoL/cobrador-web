@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
             $table->foreignId('payment_id')->nullable()->constrained('payments')->onDelete('cascade');
-            $table->enum('type', ['payment_received', 'payment_due', 'credit_approved', 'credit_rejected', 'system_alert']);
+            $table->enum('type', ['payment_received', 'payment_due', 'credit_approved', 'credit_rejected', 'system_alert', 'cobrador_payment_received']);
             $table->text('message');
             $table->enum('status', ['unread', 'read', 'archived'])->default('unread');
             $table->timestamps();
@@ -29,4 +29,4 @@ return new class extends Migration
     {
         Schema::dropIfExists('notifications');
     }
-}; 
+};

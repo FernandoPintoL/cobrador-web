@@ -4,23 +4,94 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Spatie\Permission\Traits\HasRoles;
 use Laravel\Sanctum\HasApiTokens;
-use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\Relations\HasManyThrough;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
+    /**
+     * Scope: case-insensitive name search (DB-agnostic)
+     */
+    /*public function scopeNameLikeInsensitive($query, string $term)
+    {
+        $like = '%'.strtolower($term).'%';
+
+        return $query->whereRaw('LOWER(name) LIKE ?', [$like]);
+    }*/
+
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable, HasRoles, HasApiTokens;
+    use HasApiTokens, HasFactory, HasRoles, Notifiable;
+
+    // ===========================
+    // Normalizadores de atributos
+    // ===========================
+
+    /**
+     * Set the user's name in uppercase (trimmed, UTF-8 safe).
+     */
+    public function setNameAttribute(?string $value): void
+    {
+        if ($value === null) {
+            $this->attributes['name'] = null;
+
+            return;
+        }
+        $trimmed = trim($value);
+        $this->attributes['name'] = mb_strtoupper($trimmed, 'UTF-8');
+    }
+
+    /**
+     * Normalize email to lowercase (trimmed).
+     */
+    public function setEmailAttribute(?string $value): void
+    {
+        if ($value === null) {
+            $this->attributes['email'] = null;
+
+            return;
+        }
+        $trimmed = trim($value);
+        $this->attributes['email'] = mb_strtolower($trimmed, 'UTF-8');
+    }
+
+    /**
+     * Set CI (identity) to uppercase (trimmed).
+     */
+    public function setCiAttribute(?string $value): void
+    {
+        if ($value === null) {
+            $this->attributes['ci'] = null;
+
+            return;
+        }
+        $trimmed = trim($value);
+        $this->attributes['ci'] = mb_strtoupper($trimmed, 'UTF-8');
+    }
+
+    /**
+     * Set address to uppercase (trimmed) when provided.
+     */
+    public function setAddressAttribute(?string $value): void
+    {
+        if ($value === null) {
+            $this->attributes['address'] = null;
+
+            return;
+        }
+        $trimmed = trim($value);
+        $this->attributes['address'] = mb_strtoupper($trimmed, 'UTF-8');
+    }
 
     // Constantes para las categorías de clientes
     const CLIENT_CATEGORY_VIP = 'A';
+
     const CLIENT_CATEGORY_NORMAL = 'B';
+
     const CLIENT_CATEGORY_BAD = 'C';
 
     // Array con las categorías disponibles
@@ -121,10 +192,10 @@ class User extends Authenticatable
     public function assignedClientsDirectly(): HasMany
     {
         return $this->hasMany(User::class, 'assigned_manager_id')
-            ->whereHas('roles', function($q) {
+            ->whereHas('roles', function ($q) {
                 $q->where('name', 'client');
             })
-            ->whereDoesntHave('roles', function($q) {
+            ->whereDoesntHave('roles', function ($q) {
                 $q->where('name', 'manager');
             });
     }
@@ -183,7 +254,7 @@ class User extends Authenticatable
     public function clientRoutes(): BelongsToMany
     {
         return $this->belongsToMany(Route::class, 'client_routes', 'client_id', 'route_id')
-                    ->withTimestamps();
+            ->withTimestamps();
     }
 
     /**
@@ -205,6 +276,7 @@ class User extends Authenticatable
                 'longitude' => (float) $this->longitude,
             ];
         }
+
         return null;
     }
 
@@ -224,7 +296,7 @@ class User extends Authenticatable
      */
     public function hasLocation(): bool
     {
-        return !is_null($this->latitude) && !is_null($this->longitude);
+        return ! is_null($this->latitude) && ! is_null($this->longitude);
     }
 
     /**
@@ -232,7 +304,7 @@ class User extends Authenticatable
      */
     public function distanceTo(User $user): ?float
     {
-        if (!$this->hasLocation() || !$user->hasLocation()) {
+        if (! $this->hasLocation() || ! $user->hasLocation()) {
             return null;
         }
 
@@ -255,6 +327,18 @@ class User extends Authenticatable
      */
     public static function getClientCategories(): array
     {
+        // Intentar obtener desde la tabla si existe y tiene datos activos
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('client_categories')) {
+                $rows = \App\Models\ClientCategory::query()->active()->orderBy('code')->get(['code', 'name']);
+                if ($rows->count() > 0) {
+                    return $rows->pluck('name', 'code')->toArray();
+                }
+            }
+        } catch (\Throwable $e) {
+            // Fallback silencioso a constantes si aún no existe la tabla o hay error
+        }
+
         return self::CLIENT_CATEGORIES;
     }
 
@@ -263,9 +347,26 @@ class User extends Authenticatable
      */
     public function getClientCategoryNameAttribute(): ?string
     {
-        if ($this->client_category && isset(self::CLIENT_CATEGORIES[$this->client_category])) {
+        if (! $this->client_category) {
+            return null;
+        }
+        try {
+            if (relationLoaded('clientCategory') && $this->clientCategory) {
+                return $this->clientCategory->name;
+            }
+            if (\Illuminate\Support\Facades\Schema::hasTable('client_categories')) {
+                $row = \App\Models\ClientCategory::query()->where('code', $this->client_category)->first();
+                if ($row) {
+                    return $row->name;
+                }
+            }
+        } catch (\Throwable $e) {
+            // ignore and fallback
+        }
+        if (isset(self::CLIENT_CATEGORIES[$this->client_category])) {
             return self::CLIENT_CATEGORIES[$this->client_category];
         }
+
         return null;
     }
 
@@ -325,6 +426,84 @@ class User extends Authenticatable
     public function scopeBadClients($query)
     {
         return $query->withClientCategory(self::CLIENT_CATEGORY_BAD);
+    }
+
+    /**
+     * Relationship: category by code.
+     */
+    public function clientCategory(): BelongsTo
+    {
+        return $this->belongsTo(ClientCategory::class, 'client_category', 'code');
+    }
+
+    /**
+     * Domain rule: whether this client can receive new credits (delegates to category model).
+     */
+    public function canReceiveNewCredit(): bool
+    {
+        try {
+            if ($this->clientCategory) {
+                return $this->clientCategory->canCreateNewCredit();
+            }
+        } catch (\Throwable $e) {
+            // If relation/table is missing, default to allow to avoid hard failure
+        }
+
+        return true;
+    }
+
+    /**
+     * If blocked, returns the reason message.
+     */
+    public function creditCreationBlockedReason(): ?string
+    {
+        try {
+            if ($this->clientCategory) {
+                return $this->clientCategory->creditCreationBlockedReason();
+            }
+        } catch (\Throwable $e) {
+        }
+
+        return null;
+    }
+
+    /**
+     * Compute total overdue installments across active credits.
+     */
+    public function getTotalOverdueInstallments(): int
+    {
+        $total = 0;
+        $credits = $this->credits()->where('status', 'active')->get();
+        foreach ($credits as $credit) {
+            $expected = $credit->getExpectedInstallments();
+            $completed = $credit->payments()->where('status', 'completed')->count();
+            $overdue = max(0, $expected - $completed);
+            $total += $overdue;
+        }
+
+        return $total;
+    }
+
+    /**
+     * Recalculate and persist client category based on overdue installments using client_categories ranges.
+     */
+    public function recalculateCategoryFromOverdues(): ?string
+    {
+        try {
+            if (! \Illuminate\Support\Facades\Schema::hasTable('client_categories')) {
+                return $this->client_category; // keep current when table missing
+            }
+        } catch (\Throwable $e) {
+            return $this->client_category;
+        }
+
+        $overdueCount = $this->getTotalOverdueInstallments();
+        $matching = \App\Models\ClientCategory::findForOverdueCount($overdueCount);
+        if ($matching && $this->client_category !== $matching->code) {
+            $this->update(['client_category' => $matching->code]);
+        }
+
+        return $this->client_category;
     }
 
     /**

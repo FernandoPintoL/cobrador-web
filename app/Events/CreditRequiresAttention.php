@@ -4,9 +4,7 @@ namespace App\Events;
 
 use App\Models\Credit;
 use App\Models\User;
-use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
@@ -17,8 +15,11 @@ class CreditRequiresAttention implements ShouldBroadcast
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public $credit;
+
     public $cobrador;
+
     public $manager;
+
     public $reason;
 
     /**
@@ -51,12 +52,12 @@ class CreditRequiresAttention implements ShouldBroadcast
 
         // Canal del cobrador
         if ($this->cobrador) {
-            $channels[] = new PrivateChannel('user.' . $this->cobrador->id);
+            $channels[] = new PrivateChannel('user.'.$this->cobrador->id);
         }
 
         // Canal del manager
         if ($this->manager) {
-            $channels[] = new PrivateChannel('user.' . $this->manager->id);
+            $channels[] = new PrivateChannel('user.'.$this->manager->id);
         }
 
         return $channels;
@@ -96,7 +97,7 @@ class CreditRequiresAttention implements ShouldBroadcast
     /**
      * The event's broadcast name.
      */
-    public function broadcastAs()
+    public function broadcastAs(): string
     {
         return 'credit.requires.attention';
     }

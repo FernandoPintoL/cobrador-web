@@ -112,7 +112,19 @@ class WebSocketNotificationListener implements ShouldQueue
     private function sendToWebSocket(string $endpoint, array $payload)
     {
         try {
-            $response = Http::timeout(10)->post($this->websocketUrl . $endpoint, $payload);
+            $secret = config('services.websocket.ws_secret') ?? env('WS_SECRET');
+            $url = rtrim($this->websocketUrl, '/') . $endpoint;
+
+            $request = Http::timeout(10);
+            if ($secret) {
+                $request = $request->withHeaders([
+                    'X-WS-SECRET' => $secret,
+                    'Accept' => 'application/json',
+                    'Content-Type' => 'application/json',
+                ]);
+            }
+
+            $response = $request->post($url, $payload);
 
             if (!$response->successful()) {
                 Log::error('WebSocket notification failed', [

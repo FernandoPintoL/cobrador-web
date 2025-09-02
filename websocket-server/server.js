@@ -1,4 +1,3 @@
-/* eslint-env node */
 import express from 'express';
 import http from 'http';
 import { Server as socketIo } from 'socket.io';
@@ -91,8 +90,24 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Middleware simple: validar secreto para llamadas del backend
+function ensureBackend(req, res) {
+    const secret = req.headers['x-ws-secret'] || req.query.ws_secret;
+    // En desarrollo, si no hay WS_SECRET definido, permitir (para facilitar pruebas)
+    if (!process.env.WS_SECRET && process.env.NODE_ENV !== 'production') {
+        return true;
+    }
+    if (!process.env.WS_SECRET || secret !== process.env.WS_SECRET) {
+        return false;
+    }
+    return true;
+}
+
 // API endpoint para notificaciones externas (Laravel)
 app.post('/notify', (req, res) => {
+    if (!ensureBackend(req, res)) {
+        return res.status(401).json({ success: false, error: 'Unauthorized: backend only' });
+    }
     // Soportar múltiples formatos para compatibilidad
     const { event, data, userId, userType, notification } = req.body;
 
@@ -141,6 +156,9 @@ app.post('/notify', (req, res) => {
 
 // API específica para notificaciones de créditos
 app.post('/credit-notification', (req, res) => {
+    if (!ensureBackend(req, res)) {
+        return res.status(401).json({ success: false, error: 'Unauthorized: backend only' });
+    }
     const { action, credit, user, manager, cobrador } = req.body;
 
     console.log(`🏦 Credit notification received: ${action}`, {
@@ -157,8 +175,9 @@ app.post('/credit-notification', (req, res) => {
             case 'created':
                 // Notificar al manager que un cobrador creó un crédito
                 if (manager) {
+                    const cobradorName = cobrador?.name || 'el cobrador';
                     const notificationData = formatNotification(
-                        `El cobrador ${cobrador.name} ha creado un crédito de $${credit.amount} que requiere aprobación`,
+                        `El cobrador ${cobradorName} ha creado un crédito de $${credit?.amount ?? '?'} que requiere aprobación`,
                         {
                             type: 'credit_created',
                             credit: credit,
@@ -172,9 +191,11 @@ app.post('/credit-notification', (req, res) => {
             case 'approved':
                 // Notificar al cobrador que su crédito fue aprobado
                 if (cobrador) {
+                    const approverName = manager?.name || 'el gerente';
                     const notificationData = formatNotification(
-                        `Tu crédito de $${credit.amount} ha sido aprobado por ${manager.name}`,
+                        `Tu crédito de $${credit?.amount ?? '?'} ha sido aprobado por ${approverName}`,
                         {
+                            title: 'Crédito aprobado',
                             type: 'credit_approved',
                             credit: credit,
                             manager: manager
@@ -187,9 +208,11 @@ app.post('/credit-notification', (req, res) => {
             case 'rejected':
                 // Notificar al cobrador que su crédito fue rechazado
                 if (cobrador) {
+                    const rejectorName = manager?.name || 'el gerente';
                     const notificationData = formatNotification(
-                        `Tu crédito de $${credit.amount} ha sido rechazado por ${manager.name}`,
+                        `Tu crédito de $${credit?.amount ?? '?'} ha sido rechazado por ${rejectorName}`,
                         {
+                            title: 'Crédito rechazado',
                             type: 'credit_rejected',
                             credit: credit,
                             manager: manager
@@ -202,9 +225,11 @@ app.post('/credit-notification', (req, res) => {
             case 'delivered':
                 // Notificar al manager que un crédito fue entregado
                 if (manager) {
+                    const cobradorName2 = cobrador?.name || 'el cobrador';
                     const notificationData = formatNotification(
-                        `El cobrador ${cobrador.name} ha entregado el crédito de $${credit.amount}`,
+                        `El cobrador ${cobradorName2} ha entregado el crédito de $${credit?.amount ?? '?'}`,
                         {
+                            title: 'Crédito entregado',
                             type: 'credit_delivered',
                             credit: credit,
                             cobrador: cobrador
@@ -220,6 +245,7 @@ app.post('/credit-notification', (req, res) => {
                     const notificationData = formatNotification(
                         `El crédito de $${credit.amount} requiere tu atención`,
                         {
+                            title: 'Crédito requiere atención',
                             type: 'credit_attention',
                             credit: credit
                         }
@@ -251,6 +277,9 @@ app.post('/credit-notification', (req, res) => {
 
 // API específica para notificaciones de pagos
 app.post('/payment-notification', (req, res) => {
+    if (!ensureBackend(req, res)) {
+        return res.status(401).json({ success: false, error: 'Unauthorized: backend only' });
+    }
     const { payment, cobrador, manager, client } = req.body;
 
     console.log(`💰 Payment notification received`, {
@@ -266,8 +295,9 @@ app.post('/payment-notification', (req, res) => {
         // Notificar al cobrador que recibió un pago
         if (cobrador) {
             const notificationData = formatNotification(
-                `Has recibido un pago de $${payment.amount} de ${client.name}`,
+                `Has recibido un pago de $${payment?.amount ?? '?'} de ${client?.name || 'cliente'}`,
                 {
+                    title: 'Pago recibido',
                     type: 'payment_received',
                     payment: payment,
                     client: client
@@ -279,8 +309,9 @@ app.post('/payment-notification', (req, res) => {
         // Notificar al manager sobre el pago recibido por su cobrador
         if (manager) {
             const notificationData = formatNotification(
-                `El cobrador ${cobrador.name} recibió un pago de $${payment.amount} de ${client.name}`,
+                `El cobrador ${cobrador?.name || 'cobrador'} recibió un pago de $${payment?.amount ?? '?'} de ${client?.name || 'cliente'}`,
                 {
+                    title: 'Pago de cobrador recibido',
                     type: 'cobrador_payment_received',
                     payment: payment,
                     cobrador: cobrador,
@@ -366,7 +397,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Evento mejorado para gestión completa de créditos
+    // Evento deshabilitado: Solo el backend puede emitir eventos de créditos. Se mantiene por compatibilidad pero no hace broadcast.
     socket.on('credit_lifecycle', (data) => {
         const { action, creditId, targetUserId, credit, userType, message } = data;
         const user = activeUsers.get(socket.id);
@@ -385,6 +416,10 @@ io.on('connection', (socket) => {
             timestamp: new Date().toISOString(),
             from: user ? { id: user.userId, name: user.userName, type: user.userType } : null
         };
+
+        // Bloqueado: no reenviamos eventos originados desde el cliente. Solo log para auditoría.
+        socket.emit('client_event_blocked', { event: 'credit_lifecycle', reason: 'Solo el backend puede emitir este evento' });
+        return;
 
         // Enviar a usuario específico
         if (targetUserId) {
@@ -416,62 +451,25 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Evento para enviar notificaciones de créditos (mantenido para compatibilidad)
+    // Evento deshabilitado: el frontend no puede disparar notificaciones de créditos directamente
     socket.on('credit_notification', (data) => {
         const { targetUserId, notification, userType } = data;
 
-        // Enviar a usuario específico
-        if (targetUserId) {
-            io.to(`user_${targetUserId}`).emit('new_credit_notification', notification);
-        }
-
-        // Enviar a todos los usuarios de un tipo específico
-        if (userType) {
-            if (userType === 'cobrador') {
-                io.to('cobradores').emit('new_credit_notification', notification);
-            } else if (userType === 'manager') {
-                io.to('managers').emit('new_credit_notification', notification);
-            } else if (userType === 'admin') {
-                io.to('admins').emit('new_credit_notification', notification);
-            }
-        }
-
-        console.log('Notificación de crédito enviada:', notification);
+        // Bloqueado: no reenviamos notificaciones disparadas por el cliente
+        socket.emit('client_event_blocked', { event: 'credit_notification', reason: 'Solo el backend puede emitir este evento' });
+        return;
     });
 
-    // Evento para actualizaciones de pagos
+    // Evento deshabilitado: las actualizaciones de pagos solo pueden originarse desde el backend
     socket.on('payment_update', (data) => {
-        const { cobradorId, clientId, payment } = data;
-
-        // Notificar al cobrador
-        if (cobradorId) {
-            io.to(`user_${cobradorId}`).emit('payment_updated', payment);
-        }
-
-        // Notificar al cliente
-        if (clientId) {
-            io.to(`user_${clientId}`).emit('payment_updated', payment);
-        }
-
-        // Notificar a admins
-        io.to('admins').emit('payment_updated', payment);
-
-        console.log('Actualización de pago enviada:', payment);
+        socket.emit('client_event_blocked', { event: 'payment_update', reason: 'Solo el backend puede emitir este evento' });
+        return;
     });
 
-    // Evento para notificaciones de rutas
+    // Evento deshabilitado: notificaciones de rutas solo desde backend
     socket.on('route_notification', (data) => {
-        const { cobradorId, routeUpdate } = data;
-
-        // Notificar al cobrador específico
-        if (cobradorId) {
-            io.to(`user_${cobradorId}`).emit('route_updated', routeUpdate);
-        }
-
-        // Notificar a admins
-        io.to('admins').emit('route_updated', routeUpdate);
-
-        console.log('Notificación de ruta enviada:', routeUpdate);
+        socket.emit('client_event_blocked', { event: 'route_notification', reason: 'Solo el backend puede emitir este evento' });
+        return;
     });
 
     // Evento para chat/mensajes

@@ -4,9 +4,7 @@ namespace App\Events;
 
 use App\Models\Credit;
 use App\Models\User;
-use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
@@ -17,7 +15,9 @@ class CreditWaitingListUpdate implements ShouldBroadcast
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public $credit;
+
     public $action; // 'created', 'approved', 'rejected', 'delivered', 'rescheduled'
+
     public $user;
 
     /**
@@ -37,8 +37,8 @@ class CreditWaitingListUpdate implements ShouldBroadcast
     {
         return [
             new PrivateChannel('waiting-list'),
-            new PrivateChannel('user.' . $this->credit->client_id),
-            new PrivateChannel('user.' . $this->credit->created_by),
+            new PrivateChannel('user.'.$this->credit->client_id),
+            new PrivateChannel('user.'.$this->credit->created_by),
         ];
     }
 
@@ -81,7 +81,7 @@ class CreditWaitingListUpdate implements ShouldBroadcast
     /**
      * The event's broadcast name.
      */
-    public function broadcastAs()
+    public function broadcastAs(): string
     {
         return 'credit.waiting.list.update';
     }

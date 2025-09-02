@@ -4,9 +4,7 @@ namespace App\Events;
 
 use App\Models\Payment;
 use App\Models\User;
-use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
@@ -17,8 +15,11 @@ class PaymentReceived implements ShouldBroadcast
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public $payment;
+
     public $cobrador;
+
     public $manager;
+
     public $client;
 
     /**
@@ -47,17 +48,17 @@ class PaymentReceived implements ShouldBroadcast
 
         // Canal del cobrador que recibió el pago
         if ($this->cobrador) {
-            $channels[] = new PrivateChannel('user.' . $this->cobrador->id);
+            $channels[] = new PrivateChannel('user.'.$this->cobrador->id);
         }
 
         // Canal del manager del cobrador
         if ($this->manager) {
-            $channels[] = new PrivateChannel('user.' . $this->manager->id);
+            $channels[] = new PrivateChannel('user.'.$this->manager->id);
         }
 
         // Canal del cliente
         if ($this->client) {
-            $channels[] = new PrivateChannel('user.' . $this->client->id);
+            $channels[] = new PrivateChannel('user.'.$this->client->id);
         }
 
         return $channels;
@@ -101,7 +102,7 @@ class PaymentReceived implements ShouldBroadcast
     /**
      * The event's broadcast name.
      */
-    public function broadcastAs()
+    public function broadcastAs(): string
     {
         return 'payment.received';
     }

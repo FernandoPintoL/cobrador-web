@@ -10,16 +10,10 @@ use Illuminate\Support\Facades\Log;
 
 class SendPaymentReceivedNotification
 {
-
-    protected $webSocketService;
-
     /**
-     * Create the event listener.
+     * Inject WebSocket service for Node.js notifications
      */
-    public function __construct(WebSocketNotificationService $webSocketService)
-    {
-        $this->webSocketService = $webSocketService;
-    }
+    public function __construct(public WebSocketNotificationService $webSocketService) {}
 
     /**
      * Handle the event.
@@ -31,26 +25,16 @@ class SendPaymentReceivedNotification
             $payment = $event->payment;
             $manager = $cobrador->assignedManager;
 
-            // Enviar notificación especializada de pago usando el nuevo endpoint
-            $sent = $this->webSocketService->sendPaymentNotification(
-                $payment,
-                $cobrador,
-                $manager
-            );
+            // Keep existing Laravel broadcasting (Reverb) for compatibility
+            Log::info('PaymentReceived event broadcast + Node WebSocket notification', [
+                'payment_id' => $payment->id,
+                'cobrador_id' => $cobrador->id,
+                'manager_id' => $manager ? $manager->id : null,
+                'amount' => $payment->amount,
+            ]);
 
-            if ($sent) {
-                Log::info('Payment notification sent via WebSocket', [
-                    'payment_id' => $payment->id,
-                    'cobrador_id' => $cobrador->id,
-                    'manager_id' => $manager ? $manager->id : null,
-                    'amount' => $payment->amount
-                ]);
-            } else {
-                Log::warning('Failed to send payment notification via WebSocket', [
-                    'payment_id' => $payment->id,
-                    'cobrador_id' => $cobrador->id
-                ]);
-            }
+            // Notify Node WebSocket server for cobrador and (optionally) manager
+            $this->webSocketService->sendPaymentNotification($event->payment, $event->cobrador, $manager);
 
             // Notificar también al manager del cobrador (notificación en base de datos)
             $this->notifyManager($event);
@@ -59,7 +43,7 @@ class SendPaymentReceivedNotification
             Log::error('Error sending payment received notification', [
                 'payment_id' => $event->payment->id,
                 'cobrador_id' => $event->cobrador->id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
         }
     }
@@ -71,18 +55,19 @@ class SendPaymentReceivedNotification
     {
         $cobrador = $event->cobrador;
         $payment = $event->payment;
-        
+
         // Verificar que el cobrador tenga un manager asignado
-        if (!$cobrador->assignedManager) {
+        if (! $cobrador->assignedManager) {
             Log::info('Cobrador has no assigned manager, skipping manager notification', [
                 'cobrador_id' => $cobrador->id,
-                'payment_id' => $payment->id
+                'payment_id' => $payment->id,
             ]);
+
             return;
         }
 
         $manager = $cobrador->assignedManager;
-        
+
         try {
             // Crear notificación en base de datos para el manager
             $managerNotification = Notification::create([
@@ -90,26 +75,26 @@ class SendPaymentReceivedNotification
                 'payment_id' => $payment->id,
                 'type' => 'cobrador_payment_received',
                 'message' => "El cobrador {$cobrador->name} recibió un pago de {$payment->amount} Bs de {$payment->credit->client->name}",
-                'status' => 'unread'
+                'status' => 'unread',
             ]);
-            
-            // Enviar notificación en tiempo real al manager vía WebSocket
+
+            // Enviar notificación en tiempo real al manager vía broadcasting
             event(new TestNotification($managerNotification, $manager));
-            
+
             Log::info('Manager notification sent for payment received', [
                 'manager_id' => $manager->id,
                 'cobrador_id' => $cobrador->id,
                 'payment_id' => $payment->id,
                 'amount' => $payment->amount,
-                'client_name' => $payment->credit->client->name
+                'client_name' => $payment->credit->client->name,
             ]);
-            
+
         } catch (\Exception $e) {
             Log::error('Error sending manager notification for payment received', [
                 'manager_id' => $manager->id,
                 'cobrador_id' => $cobrador->id,
                 'payment_id' => $payment->id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
         }
     }

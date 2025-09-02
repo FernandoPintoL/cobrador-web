@@ -84,6 +84,7 @@ class Payment extends Model
                 'longitude' => (float) $this->longitude,
             ];
         }
+
         return null;
     }
 
@@ -103,7 +104,7 @@ class Payment extends Model
      */
     public function hasLocation(): bool
     {
-        return !is_null($this->latitude) && !is_null($this->longitude);
+        return ! is_null($this->latitude) && ! is_null($this->longitude);
     }
 
     /**
@@ -121,6 +122,11 @@ class Payment extends Model
                     $credit->save();
                 }
 
+                // Recalcular categoría del cliente según atrasos
+                if ($payment->client) {
+                    $payment->client->recalculateCategoryFromOverdues();
+                }
+
                 // Disparar evento de pago recibido
                 $cobrador = $payment->cobrador;
                 if ($cobrador) {
@@ -129,7 +135,7 @@ class Payment extends Model
             } catch (\Exception $e) {
                 \Log::error('Error processing payment creation events', [
                     'payment_id' => $payment->id,
-                    'error' => $e->getMessage()
+                    'error' => $e->getMessage(),
                 ]);
             }
         });
@@ -149,10 +155,15 @@ class Payment extends Model
                         $credit->save();
                     }
                 }
+
+                // Recalcular categoría del cliente (por si se revertieron o ajustaron pagos)
+                if ($payment->client) {
+                    $payment->client->recalculateCategoryFromOverdues();
+                }
             } catch (\Exception $e) {
                 \Log::error('Error processing payment update events', [
                     'payment_id' => $payment->id,
-                    'error' => $e->getMessage()
+                    'error' => $e->getMessage(),
                 ]);
             }
         });

@@ -2,21 +2,24 @@
 
 namespace App\Services;
 
+use Exception;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Exception;
 
 class WebSocketNotificationService
 {
     private $host;
+
     private $port;
+
     private $secure;
+
     private $endpoint;
 
     public function __construct()
     {
-        $this->host = config('broadcasting.connections.websocket.host', '192.168.5.44');
-        $this->port = config('broadcasting.connections.websocket.port', 3001);
+        $this->host = config('broadcasting.connections.websocket.host', '192.168.100.21');
+        $this->port = config('broadcasting.connections.websocket.port', 6001);
         $this->secure = config('broadcasting.connections.websocket.secure', false);
         $this->endpoint = config('broadcasting.connections.websocket.endpoint', '/notify');
     }
@@ -27,6 +30,7 @@ class WebSocketNotificationService
     private function getServerUrl()
     {
         $protocol = $this->secure ? 'https' : 'http';
+
         return "{$protocol}://{$this->host}:{$this->port}";
     }
 
@@ -36,34 +40,37 @@ class WebSocketNotificationService
     public function sendNotification(array $data)
     {
         try {
-            $url = $this->getServerUrl() . $this->endpoint;
-            
+            $url = $this->getServerUrl().$this->endpoint;
+
             $response = Http::timeout(10)->post($url, [
                 'event' => $data['event'] ?? 'notification',
                 'data' => $data,
-                'timestamp' => now()->toISOString()
+                'timestamp' => now()->toISOString(),
             ]);
 
             if ($response->successful()) {
                 Log::info('WebSocket notification sent successfully', [
                     'url' => $url,
-                    'data' => $data
+                    'data' => $data,
                 ]);
+
                 return true;
             } else {
                 Log::warning('WebSocket notification failed', [
                     'url' => $url,
                     'status' => $response->status(),
-                    'response' => $response->body()
+                    'response' => $response->body(),
                 ]);
+
                 return false;
             }
         } catch (Exception $e) {
             Log::error('WebSocket notification error', [
-                'url' => $this->getServerUrl() . $this->endpoint,
+                'url' => $this->getServerUrl().$this->endpoint,
                 'error' => $e->getMessage(),
-                'data' => $data
+                'data' => $data,
             ]);
+
             return false;
         }
     }
@@ -74,8 +81,8 @@ class WebSocketNotificationService
     public function sendCreditNotification($credit, $action, $user, $manager = null, $cobrador = null)
     {
         try {
-            $url = $this->getServerUrl() . '/credit-notification';
-            
+            $url = $this->getServerUrl().'/credit-notification';
+
             $payload = [
                 'action' => $action,
                 'credit' => [
@@ -83,13 +90,13 @@ class WebSocketNotificationService
                     'amount' => $credit->amount,
                     'total_amount' => $credit->total_amount,
                     'status' => $credit->status,
-                    'client_name' => $credit->client->name ?? 'Cliente desconocido'
+                    'client_name' => $credit->client->name ?? 'Cliente desconocido',
                 ],
                 'user' => [
                     'id' => $user->id,
                     'name' => $user->name,
-                    'type' => $user->getRoleNames()->first()
-                ]
+                    'type' => $user->getRoleNames()->first(),
+                ],
             ];
 
             // Agregar información del manager si está disponible
@@ -97,7 +104,7 @@ class WebSocketNotificationService
                 $payload['manager'] = [
                     'id' => $manager->id,
                     'name' => $manager->name,
-                    'type' => 'manager'
+                    'type' => 'manager',
                 ];
             }
 
@@ -106,7 +113,7 @@ class WebSocketNotificationService
                 $payload['cobrador'] = [
                     'id' => $cobrador->id,
                     'name' => $cobrador->name,
-                    'type' => 'cobrador'
+                    'type' => 'cobrador',
                 ];
             }
 
@@ -116,23 +123,26 @@ class WebSocketNotificationService
                 Log::info('Credit WebSocket notification sent successfully', [
                     'action' => $action,
                     'credit_id' => $credit->id,
-                    'user_id' => $user->id
+                    'user_id' => $user->id,
                 ]);
+
                 return true;
             } else {
                 Log::warning('Credit WebSocket notification failed', [
                     'url' => $url,
                     'status' => $response->status(),
-                    'response' => $response->body()
+                    'response' => $response->body(),
                 ]);
+
                 return false;
             }
         } catch (Exception $e) {
             Log::error('Credit WebSocket notification error', [
                 'action' => $action,
                 'credit_id' => $credit->id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
@@ -143,26 +153,26 @@ class WebSocketNotificationService
     public function sendPaymentNotification($payment, $cobrador, $manager = null)
     {
         try {
-            $url = $this->getServerUrl() . '/payment-notification';
-            
+            $url = $this->getServerUrl().'/payment-notification';
+
             $payload = [
                 'payment' => [
                     'id' => $payment->id,
                     'amount' => $payment->amount,
                     'payment_date' => $payment->payment_date,
                     'payment_method' => $payment->payment_method,
-                    'credit_id' => $payment->credit_id
+                    'credit_id' => $payment->credit_id,
                 ],
                 'cobrador' => [
                     'id' => $cobrador->id,
                     'name' => $cobrador->name,
-                    'type' => 'cobrador'
+                    'type' => 'cobrador',
                 ],
                 'client' => [
                     'id' => $payment->credit->client->id,
                     'name' => $payment->credit->client->name,
-                    'type' => 'client'
-                ]
+                    'type' => 'client',
+                ],
             ];
 
             // Agregar información del manager si está disponible
@@ -170,7 +180,7 @@ class WebSocketNotificationService
                 $payload['manager'] = [
                     'id' => $manager->id,
                     'name' => $manager->name,
-                    'type' => 'manager'
+                    'type' => 'manager',
                 ];
             }
 
@@ -180,22 +190,25 @@ class WebSocketNotificationService
                 Log::info('Payment WebSocket notification sent successfully', [
                     'payment_id' => $payment->id,
                     'cobrador_id' => $cobrador->id,
-                    'amount' => $payment->amount
+                    'amount' => $payment->amount,
                 ]);
+
                 return true;
             } else {
                 Log::warning('Payment WebSocket notification failed', [
                     'url' => $url,
                     'status' => $response->status(),
-                    'response' => $response->body()
+                    'response' => $response->body(),
                 ]);
+
                 return false;
             }
         } catch (Exception $e) {
             Log::error('Payment WebSocket notification error', [
                 'payment_id' => $payment->id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
@@ -229,6 +242,7 @@ class WebSocketNotificationService
     {
         // Usar el nuevo método mejorado
         $manager = $cobrador->assignedManager;
+
         return $this->sendPaymentNotification($payment, $cobrador, $manager);
     }
 
@@ -282,20 +296,20 @@ class WebSocketNotificationService
     public function testConnection()
     {
         try {
-            $url = $this->getServerUrl() . '/health';
+            $url = $this->getServerUrl().'/health';
             $response = Http::timeout(5)->get($url);
-            
+
             return [
                 'connected' => $response->successful(),
                 'status' => $response->status(),
                 'response' => $response->json(),
-                'url' => $url
+                'url' => $url,
             ];
         } catch (Exception $e) {
             return [
                 'connected' => false,
                 'error' => $e->getMessage(),
-                'url' => $this->getServerUrl()
+                'url' => $this->getServerUrl(),
             ];
         }
     }

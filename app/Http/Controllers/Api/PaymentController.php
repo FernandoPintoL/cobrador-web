@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Models\Payment;
+use App\Events\PaymentReceived;
 use App\Models\Credit;
+use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Events\PaymentReceived;
 
 class PaymentController extends BaseController
 {
@@ -31,8 +31,8 @@ class PaymentController extends BaseController
 
         // Filtros adicionales
         $query->when($request->credit_id, function ($query, $creditId) {
-                $query->where('credit_id', $creditId);
-            })
+            $query->where('credit_id', $creditId);
+        })
             ->when($request->received_by, function ($query, $receivedBy) {
                 $query->where('received_by', $receivedBy);
             })
@@ -103,6 +103,7 @@ class PaymentController extends BaseController
             'installment_number' => $request->installment_number,
             'latitude' => $request->latitude,
             'longitude' => $request->longitude,
+            'status' => 'completed',
         ]);
 
         // Actualizar el balance del crédito
@@ -119,7 +120,7 @@ class PaymentController extends BaseController
         $payment->load(['credit.client', 'receivedBy']);
 
         // Disparar evento de pago recibido
-//        event(new PaymentReceived($payment));
+        event(new PaymentReceived($payment));
 
         return $this->sendResponse($payment, 'Pago registrado exitosamente');
     }
@@ -139,6 +140,7 @@ class PaymentController extends BaseController
         }
 
         $payment->load(['credit.client', 'receivedBy']);
+
         return $this->sendResponse($payment);
     }
 
@@ -202,7 +204,7 @@ class PaymentController extends BaseController
         $currentUser = Auth::user();
 
         // Solo admins pueden eliminar pagos
-        if (!$currentUser->hasRole('admin')) {
+        if (! $currentUser->hasRole('admin')) {
             return $this->sendError('No autorizado', 'Solo administradores pueden eliminar pagos', 403);
         }
 
@@ -238,7 +240,8 @@ class PaymentController extends BaseController
         }
 
         $payments = $credit->payments()->with(['receivedBy'])->orderBy('payment_date', 'desc')->get();
-        return $this->sendResponse($payments, "Pagos del crédito obtenidos exitosamente");
+
+        return $this->sendResponse($payments, 'Pagos del crédito obtenidos exitosamente');
     }
 
     /**
@@ -261,7 +264,7 @@ class PaymentController extends BaseController
         }
 
         // Verificar que el usuario sea un cobrador
-        if (!$cobrador->hasRole('cobrador')) {
+        if (! $cobrador->hasRole('cobrador')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un cobrador', 400);
         }
 
@@ -270,8 +273,8 @@ class PaymentController extends BaseController
 
         // Filtros adicionales
         $query->when($request->date_from, function ($query, $dateFrom) {
-                $query->whereDate('payment_date', '>=', $dateFrom);
-            })
+            $query->whereDate('payment_date', '>=', $dateFrom);
+        })
             ->when($request->date_to, function ($query, $dateTo) {
                 $query->whereDate('payment_date', '<=', $dateTo);
             })
@@ -297,7 +300,7 @@ class PaymentController extends BaseController
         }
 
         // Verificar que el usuario sea un cobrador
-        if (!$cobrador->hasRole('cobrador')) {
+        if (! $cobrador->hasRole('cobrador')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un cobrador', 400);
         }
 

@@ -1,8 +1,6 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
@@ -12,6 +10,12 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Evitar ejecutar SQL específico de PostgreSQL en SQLite (tests)
+        $driver = DB::getDriverName();
+        if ($driver !== 'pgsql') {
+            return; // No hacer nada en sqlite o mysql durante tests
+        }
+
         // Eliminar la restricción CHECK existente
         DB::statement('ALTER TABLE notifications DROP CONSTRAINT notifications_type_check');
 
@@ -35,6 +39,11 @@ return new class extends Migration
      */
     public function down(): void
     {
+        $driver = DB::getDriverName();
+        if ($driver !== 'pgsql') {
+            return;
+        }
+
         // Eliminar la restricción CHECK modificada
         DB::statement('ALTER TABLE notifications DROP CONSTRAINT notifications_type_check');
 

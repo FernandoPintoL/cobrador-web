@@ -2,11 +2,11 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Carbon\Carbon;
 
 class Credit extends Model
 {
@@ -27,6 +27,7 @@ class Credit extends Model
         'end_date',
         'status',
         'scheduled_delivery_date',
+        'immediate_delivery_requested',
         'approved_by',
         'approved_at',
         'delivered_at',
@@ -41,6 +42,7 @@ class Credit extends Model
         'start_date' => 'date',
         'end_date' => 'date',
         'scheduled_delivery_date' => 'datetime',
+        'immediate_delivery_requested' => 'boolean',
         'approved_at' => 'datetime',
         'delivered_at' => 'datetime',
         'amount' => 'decimal:2',
@@ -118,7 +120,7 @@ class Credit extends Model
     public function calculateTotalInstallments(): int
     {
         // Priorizar el valor almacenado si existe (> 0)
-        if (!empty($this->total_installments) && (int)$this->total_installments > 0) {
+        if (! empty($this->total_installments) && (int) $this->total_installments > 0) {
             return (int) $this->total_installments;
         }
 
@@ -146,6 +148,7 @@ class Credit extends Model
     public function calculateTotalAmount(): float
     {
         $interestAmount = $this->amount * ($this->interest_rate / 100);
+
         return $this->amount + $interestAmount;
     }
 
@@ -234,7 +237,7 @@ class Credit extends Model
      */
     public function getOverdueAmount(): float
     {
-        if (!$this->isOverdue()) {
+        if (! $this->isOverdue()) {
             return 0;
         }
 
@@ -282,7 +285,7 @@ class Credit extends Model
         } else {
             // Pago parcial
             $result['type'] = 'partial';
-            $result['message'] = "Pago parcial. Falta: " . ($regularInstallment - $paymentAmount) . " Bs para completar la cuota.";
+            $result['message'] = 'Pago parcial. Falta: '.($regularInstallment - $paymentAmount).' Bs para completar la cuota.';
         }
 
         return $result;
@@ -423,17 +426,17 @@ class Credit extends Model
     {
         static::saving(function ($credit) {
             // Auto-calcular total_amount si no está definido
-            if (!$credit->total_amount && $credit->amount && $credit->interest_rate) {
+            if (! $credit->total_amount && $credit->amount && $credit->interest_rate) {
                 $credit->total_amount = $credit->calculateTotalAmount();
             }
 
             // Auto-calcular installment_amount si no está definido
-            if (!$credit->installment_amount && $credit->total_amount) {
+            if (! $credit->installment_amount && $credit->total_amount) {
                 $credit->installment_amount = $credit->calculateInstallmentAmount();
             }
 
             // Inicializar balance como total_amount si no está definido
-            if (!$credit->balance && $credit->total_amount) {
+            if (! $credit->balance && $credit->total_amount) {
                 $credit->balance = $credit->total_amount;
             }
         });
@@ -450,7 +453,7 @@ class Credit extends Model
                 } catch (\Exception $e) {
                     \Log::error('Error dispatching CreditRequiresAttention event', [
                         'credit_id' => $credit->id,
-                        'error' => $e->getMessage()
+                        'error' => $e->getMessage(),
                     ]);
                 }
             }
@@ -464,7 +467,7 @@ class Credit extends Model
     /**
      * Approve credit for delivery and set scheduled delivery date
      */
-    public function approveForDelivery(int $approvedById, \DateTime $scheduledDate, string $notes = null): bool
+    public function approveForDelivery(int $approvedById, \DateTime $scheduledDate, ?string $notes = null): bool
     {
         if ($this->status !== 'pending_approval') {
             return false;
@@ -475,7 +478,7 @@ class Credit extends Model
             'approved_by' => $approvedById,
             'approved_at' => now(),
             'scheduled_delivery_date' => $scheduledDate,
-            'delivery_notes' => $notes
+            'delivery_notes' => $notes,
         ]);
 
         return true;
@@ -486,7 +489,7 @@ class Credit extends Model
      */
     public function reject(int $rejectedById, string $reason): bool
     {
-        if (!in_array($this->status, ['pending_approval', 'waiting_delivery'])) {
+        if (! in_array($this->status, ['pending_approval', 'waiting_delivery'])) {
             return false;
         }
 
@@ -494,7 +497,7 @@ class Credit extends Model
             'status' => 'rejected',
             'approved_by' => $rejectedById,
             'approved_at' => now(),
-            'rejection_reason' => $reason
+            'rejection_reason' => $reason,
         ]);
 
         return true;
@@ -503,7 +506,7 @@ class Credit extends Model
     /**
      * Deliver the credit to the client (activate it)
      */
-    public function deliverToClient(int $deliveredById, string $notes = null): bool
+    public function deliverToClient(int $deliveredById, ?string $notes = null): bool
     {
         if ($this->status !== 'waiting_delivery') {
             return false;
@@ -513,7 +516,7 @@ class Credit extends Model
             'status' => 'active',
             'delivered_by' => $deliveredById,
             'delivered_at' => now(),
-            'delivery_notes' => $notes ? $this->delivery_notes . "\n\nEntrega: " . $notes : $this->delivery_notes
+            'delivery_notes' => $notes ? $this->delivery_notes."\n\nEntrega: ".$notes : $this->delivery_notes,
         ]);
 
         return true;
@@ -544,7 +547,7 @@ class Credit extends Model
      */
     public function getDaysUntilDelivery(): int
     {
-        if (!$this->scheduled_delivery_date || $this->status !== 'waiting_delivery') {
+        if (! $this->scheduled_delivery_date || $this->status !== 'waiting_delivery') {
             return 0;
         }
 
@@ -556,18 +559,19 @@ class Credit extends Model
      */
     public function getDaysOverdueForDelivery(): int
     {
-        if (!$this->scheduled_delivery_date || $this->status !== 'waiting_delivery') {
+        if (! $this->scheduled_delivery_date || $this->status !== 'waiting_delivery') {
             return 0;
         }
 
         $daysPast = now()->diffInDays($this->scheduled_delivery_date, false);
+
         return $daysPast < 0 ? abs($daysPast) : 0;
     }
 
     /**
      * Reschedule delivery date
      */
-    public function rescheduleDelivery(\DateTime $newDate, int $rescheduledById, string $reason = null): bool
+    public function rescheduleDelivery(\DateTime $newDate, int $rescheduledById, ?string $reason = null): bool
     {
         if ($this->status !== 'waiting_delivery') {
             return false;
@@ -575,14 +579,14 @@ class Credit extends Model
 
         $oldDate = $this->scheduled_delivery_date;
         $notes = $this->delivery_notes ?? '';
-        $notes .= "\n\nReprogramado por usuario {$rescheduledById}: " . $oldDate->format('Y-m-d H:i') . " -> " . $newDate->format('Y-m-d H:i');
+        $notes .= "\n\nReprogramado por usuario {$rescheduledById}: ".$oldDate->format('Y-m-d H:i').' -> '.$newDate->format('Y-m-d H:i');
         if ($reason) {
-            $notes .= "\nMotivo: " . $reason;
+            $notes .= "\nMotivo: ".$reason;
         }
 
         $this->update([
             'scheduled_delivery_date' => $newDate,
-            'delivery_notes' => $notes
+            'delivery_notes' => $notes,
         ]);
 
         return true;

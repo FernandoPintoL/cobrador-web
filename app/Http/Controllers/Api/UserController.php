@@ -3,12 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Models\User;
+use App\Models\UserPhoto;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Role;
-use App\Models\UserPhoto;
 
 class UserController extends BaseController
 {
@@ -39,11 +39,11 @@ class UserController extends BaseController
             $query->where(function ($q) use ($request) {
                 $search = $request->search;
                 $q->where('id', 'like', "%{$search}%")
-                  ->orWhere('name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%")
-                  ->orWhere('ci', 'like', "%{$search}%")
-                  ->orWhere('client_category', 'like', "%{$search}%");
+                    ->orWhere('name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%")
+                    ->orWhere('ci', 'like', "%{$search}%")
+                    ->orWhere('client_category', 'like', "%{$search}%");
             });
         }
 
@@ -89,7 +89,7 @@ class UserController extends BaseController
      */
     public function store(Request $request)
     {
-        //return $request->all(); Debugging line to check request data
+        // return $request->all(); Debugging line to check request data
         // Determinar si solo se está creando un cliente
         $requestedRoles = $request->get('roles', []);
         $isOnlyClient = count($requestedRoles) === 1 && in_array('client', $requestedRoles);
@@ -103,7 +103,7 @@ class UserController extends BaseController
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'roles' => 'required|array|min:1',
             'roles.*' => 'string|in:admin,manager,cobrador,client',
-            'client_category' => 'nullable|string|in:A,B,C', // Validación para la categoría de cliente
+            'client_category' => 'nullable|string|exists:client_categories,code', // Validación usando tabla client_categories
             'location' => 'nullable|array',
             'location.type' => 'nullable|string|in:Point',
             'location.coordinates' => 'nullable|array|size:2',
@@ -113,7 +113,7 @@ class UserController extends BaseController
 
         // Si es cliente, la categoría es requerida, por defecto será 'B' (Cliente Normal)
         if ($isOnlyClient) {
-            $validationRules['client_category'] = 'nullable|string|in:A,B,C';
+            $validationRules['client_category'] = 'nullable|string|exists:client_categories,code';
         }
 
         // Determinar si está creando un cobrador
@@ -137,7 +137,7 @@ class UserController extends BaseController
 
         // Validación adicional para cobradores: al menos email o phone debe estar presente
         if ($isCreatingCobrador) {
-            if (!$request->filled('email') && !$request->filled('phone')) {
+            if (! $request->filled('email') && ! $request->filled('phone')) {
                 return $this->sendError('Campos requeridos', 'Para cobradores, se requiere al menos email o teléfono para el inicio de sesión.', 400);
             }
         }
@@ -149,12 +149,12 @@ class UserController extends BaseController
         $requestedRoles = $request->roles;
 
         // Solo admins pueden crear otros admins
-        if (in_array('admin', $requestedRoles) && !$currentUser->hasRole('admin')) {
+        if (in_array('admin', $requestedRoles) && ! $currentUser->hasRole('admin')) {
             return $this->sendError('No autorizado', 'Solo los administradores pueden crear usuarios con rol de admin', 403);
         }
 
         // Los cobradores solo pueden crear clientes
-        if ($currentUser->hasRole('cobrador') && !in_array('client', $requestedRoles)) {
+        if ($currentUser->hasRole('cobrador') && ! in_array('client', $requestedRoles)) {
             return $this->sendError('No autorizado', 'Los cobradores solo pueden crear usuarios con rol de cliente', 403);
         }
 
@@ -171,7 +171,7 @@ class UserController extends BaseController
 
         // Agregar categoría de cliente - si es cliente y no se especifica, usar 'B' por defecto
         if ($isOnlyClient) {
-            $userData['client_category'] = $request->get('client_category', 'B'); // Cliente Normal por defecto
+            $userData['client_category'] = $request->get('client_category', 'A'); // Cliente VIP por defecto
         }
 
         // Procesar ubicación GeoJSON si se proporciona
@@ -186,11 +186,11 @@ class UserController extends BaseController
             }
         }
 
-        if($currentUser->hasRole('manager') && ($isCreatingCobrador || $isOnlyClient) ){
+        if ($currentUser->hasRole('manager') && ($isCreatingCobrador || $isOnlyClient)) {
             $userData['assigned_manager_id'] = $currentUser->id; // Asignar el ID del manager
         }
 
-        if($currentUser->hasRole('cobrador') && $isOnlyClient){
+        if ($currentUser->hasRole('cobrador') && $isOnlyClient) {
             $userData['assigned_cobrador_id'] = $currentUser->id; // Asignar el ID del cobrador
         }
 
@@ -205,14 +205,14 @@ class UserController extends BaseController
         }
 
         // Manejar la contraseña
-        if ($request->has('password') && !empty($request->password)) {
+        if ($request->has('password') && ! empty($request->password)) {
             // Si se proporciona una contraseña, usarla
             $userData['password'] = Hash::make($request->password);
         } else {
             // Si no se proporciona contraseña, generar una temporal para clientes
             if (in_array('client', $requestedRoles)) {
                 // Para clientes, generar una contraseña temporal que no se usa
-                $userData['password'] = Hash::make('temp_password_' . time());
+                $userData['password'] = Hash::make('temp_password_'.time());
             } else {
                 // Para otros roles, requerir contraseña
                 return $this->sendError('Contraseña requerida', 'La contraseña es requerida para roles que no sean cliente', 400);
@@ -238,14 +238,14 @@ class UserController extends BaseController
         $message = 'Usuario creado exitosamente';
         if (in_array('client', $requestedRoles)) {
             $warnings = [];
-            if (!$request->has('password') || empty($request->password)) {
+            if (! $request->has('password') || empty($request->password)) {
                 $warnings[] = 'sin contraseña';
             }
-            if (!$request->filled('email')) {
+            if (! $request->filled('email')) {
                 $warnings[] = 'sin email';
             }
-            if (!empty($warnings)) {
-                $message .= ' (cliente ' . implode(' y ', $warnings) . ' - no puede acceder al sistema)';
+            if (! empty($warnings)) {
+                $message .= ' (cliente '.implode(' y ', $warnings).' - no puede acceder al sistema)';
             }
         }
 
@@ -258,6 +258,7 @@ class UserController extends BaseController
     public function show(User $user)
     {
         $user->load('roles', 'permissions');
+
         return $this->sendResponse($user);
     }
 
@@ -273,13 +274,13 @@ class UserController extends BaseController
         // Validación dinámica basada en el rol actual del usuario
         $validationRules = [
             'name' => 'required|string|max:255',
-            'ci' => 'required|string|max:20|unique:users,ci,' . $user->id, // Validación para el CI en actualización
-            'phone' => 'nullable|string|max:20|unique:users,phone,' . $user->id,
+            'ci' => 'required|string|max:20|unique:users,ci,'.$user->id, // Validación para el CI en actualización
+            'phone' => 'nullable|string|max:20|unique:users,phone,'.$user->id,
             'address' => 'nullable|string',
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'roles' => 'array',
             'roles.*' => 'exists:roles,name',
-            'client_category' => 'nullable|string|in:A,B,C', // Validación para la categoría de cliente
+            'client_category' => 'nullable|string|exists:client_categories,code', // Validación usando tabla client_categories
             'location' => 'nullable|array',
             'location.type' => 'nullable|string|in:Point',
             'location.coordinates' => 'nullable|array|size:2',
@@ -289,9 +290,9 @@ class UserController extends BaseController
 
         // Si solo es cliente, el email es opcional
         if ($isOnlyClient) {
-            $validationRules['email'] = 'nullable|string|email|max:255|unique:users,email,' . $user->id;
+            $validationRules['email'] = 'nullable|string|email|max:255|unique:users,email,'.$user->id;
         } else {
-            $validationRules['email'] = 'required|string|email|max:255|unique:users,email,' . $user->id;
+            $validationRules['email'] = 'required|string|email|max:255|unique:users,email,'.$user->id;
         }
 
         $request->validate($validationRules);
@@ -355,6 +356,7 @@ class UserController extends BaseController
     public function destroy(User $user)
     {
         $user->delete();
+
         return $this->sendResponse([], 'Usuario eliminado exitosamente');
     }
 
@@ -364,6 +366,7 @@ class UserController extends BaseController
     public function getRoles()
     {
         $roles = Role::all();
+
         return $this->sendResponse($roles);
     }
 
@@ -385,11 +388,11 @@ class UserController extends BaseController
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('id', 'like', "%{$search}%")
-                      ->orWhere('name', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhere('phone', 'like', "%{$search}%")
-                      ->orWhere('ci', 'like', "%{$search}%")
-                      ->orWhere('client_category', 'like', "%{$search}%");
+                        ->orWhere('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%")
+                        ->orWhere('ci', 'like', "%{$search}%")
+                        ->orWhere('client_category', 'like', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
@@ -412,8 +415,8 @@ class UserController extends BaseController
         // Validar que todos los roles sean válidos
         $validRoles = ['client', 'manager', 'cobrador', 'admin'];
         foreach ($roles as $role) {
-            if (!in_array(trim($role), $validRoles)) {
-                return $this->sendError('Rol inválido', "El rol '{$role}' no es válido. Roles válidos: " . implode(', ', $validRoles), 400);
+            if (! in_array(trim($role), $validRoles)) {
+                return $this->sendError('Rol inválido', "El rol '{$role}' no es válido. Roles válidos: ".implode(', ', $validRoles), 400);
             }
         }
 
@@ -424,24 +427,25 @@ class UserController extends BaseController
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('id', 'like', "%{$search}%")
-                      ->orWhere('name', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhere('phone', 'like', "%{$search}%")
-                      ->orWhere('ci', 'like', "%{$search}%")
-                      ->orWhere('client_category', 'like', "%{$search}%");
+                        ->orWhere('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%")
+                        ->orWhere('ci', 'like', "%{$search}%")
+                        ->orWhere('client_category', 'like', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
             ->paginate($request->get('per_page', 15));
 
         $rolesList = implode(', ', array_map('trim', $roles));
+
         return $this->sendResponse($users, "Usuarios con roles {$rolesList} obtenidos exitosamente");
     }
 
     /**
      * Generate a consistent filename based on user CI and timestamp
      */
-    private function generateImageFileName(User $user, $originalFileName, string $type = null): string
+    private function generateImageFileName(User $user, $originalFileName, ?string $type = null): string
     {
         // Obtener la extensión del archivo original
         $extension = pathinfo($originalFileName, PATHINFO_EXTENSION);
@@ -507,15 +511,18 @@ class UserController extends BaseController
 
         // TEMPORAL: Permitir todo para debug (REMOVER EN PRODUCCIÓN)
         \Log::info('⚠️ MODO DEBUG: PERMITIENDO TODAS LAS SUBIDAS DE FOTOS');
+
         return true;
 
         if ($current->id === $target->id) {
             \Log::info('✅ Autorizado: mismo usuario');
+
             return true; // self
         }
 
         if ($current->hasRole('admin') || $current->hasRole('manager')) {
             \Log::info('✅ Autorizado: admin o manager');
+
             return true;
         }
 
@@ -534,10 +541,12 @@ class UserController extends BaseController
 
         if ($isCurrentCobrador && $isTargetClient && $isAssigned) {
             \Log::info('✅ Autorizado: cobrador de cliente asignado');
+
             return true;
         }
 
         \Log::info('❌ No autorizado');
+
         return false;
     }
 
@@ -547,7 +556,7 @@ class UserController extends BaseController
     public function getPhotos(User $user)
     {
         $current = Auth::user();
-        if (!$this->canManageUserMedia($current, $user)) {
+        if (! $this->canManageUserMedia($current, $user)) {
             return $this->sendError('No autorizado', 'No tienes permisos para ver las fotos de este usuario', 403);
         }
 
@@ -556,7 +565,7 @@ class UserController extends BaseController
                 'id' => $p->id,
                 'type' => $p->type,
                 'path_url' => $p->path_url,
-                'url' => asset('storage/' . $p->path_url),
+                'url' => asset('storage/'.$p->path_url),
                 'uploaded_by' => $p->uploaded_by,
                 'created_at' => $p->created_at,
                 'notes' => $p->notes,
@@ -588,7 +597,7 @@ class UserController extends BaseController
             'request_headers' => $request->headers->all(),
         ]);
 
-        if (!$this->canManageUserMedia($current, $user)) {
+        if (! $this->canManageUserMedia($current, $user)) {
             return $this->sendError('No autorizado', 'No tienes permisos para subir fotos para este usuario', 403);
         }
 
@@ -602,11 +611,11 @@ class UserController extends BaseController
         // Validación flexible (acepta tanto array como valor único en photos/types)
         $rules = [
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:5120',
-            'type' => 'nullable|string|in:' . implode(',', $allowedTypes),
+            'type' => 'nullable|string|in:'.implode(',', $allowedTypes),
             'photos' => 'nullable', // puede ser array o archivo único
             'photos.*' => 'image|mimes:jpeg,png,jpg,gif|max:5120',
             'types' => 'nullable', // puede ser array o string único
-            'types.*' => 'nullable|string|in:' . implode(',', $allowedTypes),
+            'types.*' => 'nullable|string|in:'.implode(',', $allowedTypes),
             'notes' => 'nullable|string|max:255',
         ];
         $validated = $request->validate($rules);
@@ -614,11 +623,13 @@ class UserController extends BaseController
         $saved = [];
         $updated = [];
         $disk = 'public';
-        $baseDir = 'user-photos/' . $user->ci; // Usar CI en lugar de ID para la carpeta
+        $baseDir = 'user-photos/'.$user->ci; // Usar CI en lugar de ID para la carpeta
 
         // Helper function para procesar un archivo individual
-        $processFile = function($file, $type, $notes) use ($user, $current, $baseDir, $disk, &$saved, &$updated) {
-            if (!in_array($type, ['id_front', 'id_back', 'other'])) $type = 'other';
+        $processFile = function ($file, $type, $notes) use ($user, $current, $baseDir, $disk, &$saved, &$updated) {
+            if (! in_array($type, ['id_front', 'id_back', 'other'])) {
+                $type = 'other';
+            }
 
             // Buscar si ya existe una foto del mismo tipo para este usuario
             $existingPhoto = UserPhoto::where('user_id', $user->id)
@@ -647,8 +658,8 @@ class UserController extends BaseController
                     'id' => $existingPhoto->id,
                     'type' => $existingPhoto->type,
                     'path_url' => $existingPhoto->path_url,
-                    'url' => asset('storage/' . $existingPhoto->path_url),
-                    'action' => 'updated'
+                    'url' => asset('storage/'.$existingPhoto->path_url),
+                    'action' => 'updated',
                 ];
             } else {
                 // CREAR: Nuevo registro
@@ -664,8 +675,8 @@ class UserController extends BaseController
                     'id' => $record->id,
                     'type' => $record->type,
                     'path_url' => $record->path_url,
-                    'url' => asset('storage/' . $record->path_url),
-                    'action' => 'created'
+                    'url' => asset('storage/'.$record->path_url),
+                    'action' => 'created',
                 ];
             }
         };
@@ -674,10 +685,14 @@ class UserController extends BaseController
         if ($request->hasFile('photos')) {
             $files = $request->file('photos');
             // Normalizar: si llega un solo archivo como 'photos', convertir a arreglo
-            if (!is_array($files)) { $files = [$files]; }
+            if (! is_array($files)) {
+                $files = [$files];
+            }
             $types = $request->input('types', []);
             // Normalizar: si llega un solo tipo como string, convertir a arreglo
-            if (!is_array($types)) { $types = [$types]; }
+            if (! is_array($types)) {
+                $types = [$types];
+            }
 
             foreach ($files as $idx => $file) {
                 $type = $types[$idx] ?? 'other';
@@ -714,8 +729,8 @@ class UserController extends BaseController
             'summary' => [
                 'total_processed' => count($allResults),
                 'created' => $totalCreated,
-                'updated' => $totalUpdated
-            ]
+                'updated' => $totalUpdated,
+            ],
         ];
 
         return $this->sendResponse($response, $message);
@@ -727,7 +742,7 @@ class UserController extends BaseController
     public function deletePhoto(User $user, UserPhoto $photo)
     {
         $current = Auth::user();
-        if (!$this->canManageUserMedia($current, $user)) {
+        if (! $this->canManageUserMedia($current, $user)) {
             return $this->sendError('No autorizado', 'No tienes permisos para eliminar fotos de este usuario', 403);
         }
 
@@ -750,7 +765,7 @@ class UserController extends BaseController
     public function getClientsByCobrador(Request $request, User $cobrador)
     {
         // Verificar que el usuario sea un cobrador
-        if (!$cobrador->hasRole('cobrador')) {
+        if (! $cobrador->hasRole('cobrador')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un cobrador', 400);
         }
 
@@ -759,11 +774,11 @@ class UserController extends BaseController
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('id', 'like', "%{$search}%")
-                      ->orWhere('name', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhere('phone', 'like', "%{$search}%")
-                      ->orWhere('ci', 'like', "%{$search}%")
-                      ->orWhere('client_category', 'like', "%{$search}%");
+                        ->orWhere('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%")
+                        ->orWhere('ci', 'like', "%{$search}%")
+                        ->orWhere('client_category', 'like', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
@@ -775,14 +790,15 @@ class UserController extends BaseController
     /**
      * Assign clients to a cobrador.
      */
-    public function assignClientsToCobrador(Request $request, User $cobrador){
+    public function assignClientsToCobrador(Request $request, User $cobrador)
+    {
         $request->validate([
             'client_ids' => 'required|array|min:1',
             'client_ids.*' => 'integer|exists:users,id',
         ]);
 
         // Verificar que el usuario sea un cobrador
-        if (!$cobrador->hasRole('cobrador')) {
+        if (! $cobrador->hasRole('cobrador')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un cobrador', 400);
         }
 
@@ -811,7 +827,7 @@ class UserController extends BaseController
     public function removeClientFromCobrador(Request $request, User $cobrador, User $client)
     {
         // Verificar que el usuario sea un cobrador
-        if (!$cobrador->hasRole('cobrador')) {
+        if (! $cobrador->hasRole('cobrador')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un cobrador', 400);
         }
 
@@ -832,13 +848,13 @@ class UserController extends BaseController
     public function getCobradorByClient(User $client)
     {
         // Verificar que el usuario sea un cliente
-        if (!$client->hasRole('client')) {
+        if (! $client->hasRole('client')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un cliente', 400);
         }
 
         $cobrador = $client->assignedCobrador;
 
-        if (!$cobrador) {
+        if (! $cobrador) {
             return $this->sendResponse(null, 'El cliente no tiene un cobrador asignado');
         }
 
@@ -853,24 +869,24 @@ class UserController extends BaseController
     public function getCobradoresByManager(Request $request, User $manager)
     {
         // Verificar que el usuario sea un manager
-        if (!$manager->hasRole('manager')) {
+        if (! $manager->hasRole('manager')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
         }
 
         // Obtener solo usuarios con rol 'cobrador' asignados a este manager
         $cobradores = User::whereHas('roles', function ($query) {
-                $query->where('name', 'cobrador');
-            })
+            $query->where('name', 'cobrador');
+        })
             ->where('assigned_manager_id', $manager->id)
             ->with(['roles', 'permissions'])
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('id', 'like', "%{$search}%")
-                      ->orWhere('name', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhere('phone', 'like', "%{$search}%")
-                      ->orWhere('ci', 'like', "%{$search}%")
-                      ->orWhere('client_category', 'like', "%{$search}%");
+                        ->orWhere('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%")
+                        ->orWhere('ci', 'like', "%{$search}%")
+                        ->orWhere('client_category', 'like', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
@@ -890,7 +906,7 @@ class UserController extends BaseController
         ]);
 
         // Verificar que el usuario sea un manager
-        if (!$manager->hasRole('manager')) {
+        if (! $manager->hasRole('manager')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
         }
 
@@ -921,7 +937,7 @@ class UserController extends BaseController
     public function removeCobradorFromManager(Request $request, User $manager, User $cobrador)
     {
         // Verificar que el usuario sea un manager
-        if (!$manager->hasRole('manager')) {
+        if (! $manager->hasRole('manager')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
         }
 
@@ -944,13 +960,13 @@ class UserController extends BaseController
     public function getManagerByCobrador(User $cobrador)
     {
         // Verificar que el usuario sea un cobrador
-        if (!$cobrador->hasRole('cobrador')) {
+        if (! $cobrador->hasRole('cobrador')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un cobrador', 400);
         }
 
         $manager = $cobrador->assignedManager;
 
-        if (!$manager) {
+        if (! $manager) {
             return $this->sendResponse(null, 'El cobrador no tiene un manager asignado');
         }
 
@@ -965,7 +981,7 @@ class UserController extends BaseController
     public function getAllClientsByManager(Request $request, User $manager)
     {
         // Verificar que el usuario sea un manager
-        if (!$manager->hasRole('manager')) {
+        if (! $manager->hasRole('manager')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
         }
 
@@ -976,38 +992,38 @@ class UserController extends BaseController
 
         // Obtener IDs de cobradores asignados al manager (filtrar por rol cobrador)
         $cobradorIds = User::whereHas('roles', function ($query) {
-                $query->where('name', 'cobrador');
-            })
+            $query->where('name', 'cobrador');
+        })
             ->where('assigned_manager_id', $manager->id)
             ->pluck('id');
 
         // Obtener clientes asignados a esos cobradores
         $cobradorClientsQuery = User::whereHas('roles', function ($query) {
-                $query->where('name', 'client');
-            })
+            $query->where('name', 'client');
+        })
             ->whereIn('assigned_cobrador_id', $cobradorIds);
 
         // Combinar ambas consultas usando UNION
         $allClients = User::whereHas('roles', function ($query) {
-                $query->where('name', 'client');
-            })
+            $query->where('name', 'client');
+        })
             // Excluir usuarios que tengan rol de manager para evitar conflictos
             ->whereDoesntHave('roles', function ($query) {
                 $query->where('name', 'manager');
             })
             ->where(function ($query) use ($manager, $cobradorIds) {
                 $query->where('assigned_manager_id', $manager->id) // Clientes directos del manager
-                      ->orWhereIn('assigned_cobrador_id', $cobradorIds); // Clientes de cobradores del manager
+                    ->orWhereIn('assigned_cobrador_id', $cobradorIds); // Clientes de cobradores del manager
             })
             ->with(['roles', 'permissions', 'assignedCobrador', 'assignedManagerDirectly'])
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('id', 'like', "%{$search}%")
-                      ->orWhere('name', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhere('phone', 'like', "%{$search}%")
-                      ->orWhere('ci', 'like', "%{$search}%")
-                      ->orWhere('client_category', 'like', "%{$search}%");
+                        ->orWhere('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%")
+                        ->orWhere('ci', 'like', "%{$search}%")
+                        ->orWhere('client_category', 'like', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
@@ -1017,6 +1033,7 @@ class UserController extends BaseController
         $allClients->getCollection()->transform(function ($client) {
             $client->assignment_type = $client->assigned_manager_id ? 'direct' : 'through_cobrador';
             $client->cobrador_name = $client->assignedCobrador ? $client->assignedCobrador->name : null;
+
             return $client;
         });
 
@@ -1029,7 +1046,7 @@ class UserController extends BaseController
     public function getClientsByManager(Request $request, User $manager)
     {
         // Verificar que el usuario sea un manager
-        if (!$manager->hasRole('manager')) {
+        if (! $manager->hasRole('manager')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
         }
 
@@ -1038,11 +1055,11 @@ class UserController extends BaseController
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('id', 'like', "%{$search}%")
-                      ->orWhere('name', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhere('phone', 'like', "%{$search}%")
-                      ->orWhere('ci', 'like', "%{$search}%")
-                      ->orWhere('client_category', 'like', "%{$search}%");
+                        ->orWhere('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%")
+                        ->orWhere('ci', 'like', "%{$search}%")
+                        ->orWhere('client_category', 'like', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
@@ -1062,7 +1079,7 @@ class UserController extends BaseController
         ]);
 
         // Verificar que el usuario sea un manager
-        if (!$manager->hasRole('manager')) {
+        if (! $manager->hasRole('manager')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
         }
 
@@ -1093,7 +1110,7 @@ class UserController extends BaseController
     public function removeClientFromManager(Request $request, User $manager, User $client)
     {
         // Verificar que el usuario sea un manager
-        if (!$manager->hasRole('manager')) {
+        if (! $manager->hasRole('manager')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
         }
 
@@ -1116,13 +1133,13 @@ class UserController extends BaseController
     public function getManagerByClient(User $client)
     {
         // Verificar que el usuario sea un cliente
-        if (!$client->hasRole('client')) {
+        if (! $client->hasRole('client')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un cliente', 400);
         }
 
         $manager = $client->assignedManagerDirectly;
 
-        if (!$manager) {
+        if (! $manager) {
             return $this->sendResponse(null, 'El cliente no tiene un manager asignado directamente');
         }
 
@@ -1136,7 +1153,24 @@ class UserController extends BaseController
      */
     public function getClientCategories()
     {
-        $categories = User::getClientCategories();
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('client_categories')) {
+                $categories = \App\Models\ClientCategory::query()
+                    ->active()
+                    ->orderBy('code')
+                    ->get(['code', 'name', 'description']);
+
+                if ($categories->count() > 0) {
+                    return $this->sendResponse($categories, 'Categorías de clientes obtenidas exitosamente');
+                }
+            }
+        } catch (\Throwable $e) {
+            // Fallback to constants
+        }
+        $categories = collect(User::getClientCategories())
+            ->map(fn ($name, $code) => ['code' => $code, 'name' => $name, 'description' => null])
+            ->values();
+
         return $this->sendResponse($categories, 'Categorías de clientes obtenidas exitosamente');
     }
 
@@ -1146,18 +1180,19 @@ class UserController extends BaseController
     public function updateClientCategory(Request $request, User $client)
     {
         // Verificar que el usuario sea un cliente
-        if (!$client->hasRole('client')) {
+        if (! $client->hasRole('client')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un cliente', 400);
         }
 
         $request->validate([
-            'client_category' => 'required|string|in:A,B,C',
+            'client_category' => 'required|string|exists:client_categories,code',
         ]);
 
         $client->update(['client_category' => $request->client_category]);
-        $client->load('roles', 'permissions');
+        $client->load('roles', 'permissions', 'clientCategory');
 
-        $categoryName = User::CLIENT_CATEGORIES[$request->client_category];
+        $categoryName = $client->client_category_name ?? ($client->clientCategory->name ?? $request->client_category);
+
         return $this->sendResponse($client, "Categoría del cliente actualizada a: {$categoryName}");
     }
 
@@ -1167,22 +1202,32 @@ class UserController extends BaseController
     public function getClientsByCategory(Request $request)
     {
         $request->validate([
-            'category' => 'required|string|in:A,B,C',
+            'category' => 'required|string|exists:client_categories,code',
         ]);
 
         $category = $request->category;
-        $categoryName = User::CLIENT_CATEGORIES[$category];
+        $categoryName = null;
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('client_categories')) {
+                $row = \App\Models\ClientCategory::query()->where('code', $category)->first();
+                $categoryName = $row?->name;
+            }
+        } catch (\Throwable $e) {
+        }
+        if (! $categoryName) {
+            $categoryName = User::getClientCategories()[$category] ?? $category;
+        }
 
         $clients = User::whereHas('roles', function ($query) {
-                $query->where('name', 'client');
-            })
+            $query->where('name', 'client');
+        })
             ->where('client_category', $category)
             ->with(['roles', 'permissions', 'assignedCobrador', 'assignedManagerDirectly'])
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhere('ci', 'like', "%{$search}%");
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('ci', 'like', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
@@ -1198,31 +1243,43 @@ class UserController extends BaseController
     {
         $statistics = [];
 
-        foreach (User::CLIENT_CATEGORIES as $code => $name) {
+        $codesWithNames = [];
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('client_categories')) {
+                $codesWithNames = \App\Models\ClientCategory::query()->active()->orderBy('code')->get(['code', 'name'])
+                    ->map(fn ($row) => [$row->code => $row->name])->collapse()->toArray();
+            }
+        } catch (\Throwable $e) {
+        }
+        if (empty($codesWithNames)) {
+            $codesWithNames = User::getClientCategories();
+        }
+
+        foreach ($codesWithNames as $code => $name) {
             $count = User::whereHas('roles', function ($query) {
-                    $query->where('name', 'client');
-                })
+                $query->where('name', 'client');
+            })
                 ->where('client_category', $code)
                 ->count();
 
             $statistics[] = [
                 'category_code' => $code,
                 'category_name' => $name,
-                'client_count' => $count
+                'client_count' => $count,
             ];
         }
 
         // Agregar clientes sin categoría
         $uncategorizedCount = User::whereHas('roles', function ($query) {
-                $query->where('name', 'client');
-            })
+            $query->where('name', 'client');
+        })
             ->whereNull('client_category')
             ->count();
 
         $statistics[] = [
             'category_code' => null,
             'category_name' => 'Sin categoría',
-            'client_count' => $uncategorizedCount
+            'client_count' => $uncategorizedCount,
         ];
 
         return $this->sendResponse($statistics, 'Estadísticas de categorías de clientes obtenidas exitosamente');
@@ -1246,8 +1303,9 @@ class UserController extends BaseController
             $client = User::find($update['client_id']);
 
             // Verificar que sea un cliente
-            if (!$client->hasRole('client')) {
+            if (! $client->hasRole('client')) {
                 $errors[] = "Usuario ID {$update['client_id']} no es un cliente";
+
                 continue;
             }
 
@@ -1259,15 +1317,15 @@ class UserController extends BaseController
         $response = [
             'updated_clients' => $updatedClients,
             'updated_count' => count($updatedClients),
-            'errors' => $errors
+            'errors' => $errors,
         ];
 
         $message = count($updatedClients) > 0
-            ? "Se actualizaron " . count($updatedClients) . " categorías de clientes exitosamente"
-            : "No se pudieron actualizar las categorías";
+            ? 'Se actualizaron '.count($updatedClients).' categorías de clientes exitosamente'
+            : 'No se pudieron actualizar las categorías';
 
-        if (!empty($errors)) {
-            $message .= ". Se encontraron " . count($errors) . " errores";
+        if (! empty($errors)) {
+            $message .= '. Se encontraron '.count($errors).' errores';
         }
 
         return $this->sendResponse($response, $message);
@@ -1289,13 +1347,13 @@ class UserController extends BaseController
         ]);
 
         // Verificar autorización
-        if (!$this->canChangeUserPassword($currentUser, $user)) {
+        if (! $this->canChangeUserPassword($currentUser, $user)) {
             return $this->sendError('No autorizado', 'No tienes permisos para cambiar la contraseña de este usuario', 403);
         }
 
         // Cambiar la contraseña
         $user->update([
-            'password' => Hash::make($request->new_password)
+            'password' => Hash::make($request->new_password),
         ]);
 
         // Log de la acción para auditoría
@@ -1303,13 +1361,13 @@ class UserController extends BaseController
             'target_user' => [
                 'id' => $user->id,
                 'name' => $user->name,
-                'roles' => $user->roles->pluck('name')->toArray()
+                'roles' => $user->roles->pluck('name')->toArray(),
             ],
             'changed_by' => [
                 'id' => $currentUser->id,
                 'name' => $currentUser->name,
-                'roles' => $currentUser->roles->pluck('name')->toArray()
-            ]
+                'roles' => $currentUser->roles->pluck('name')->toArray(),
+            ],
         ]);
 
         return $this->sendResponse(

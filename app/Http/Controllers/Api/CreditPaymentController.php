@@ -26,7 +26,7 @@ class CreditPaymentController extends Controller
             if ($credit->status !== 'active') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'El crédito no está activo'
+                    'message' => 'El crédito no está activo',
                 ], 400);
             }
 
@@ -64,20 +64,20 @@ class CreditPaymentController extends Controller
                         'pending_installments' => $credit->getPendingInstallments(),
                         'is_overdue' => $credit->isOverdue(),
                         'overdue_amount' => $credit->getOverdueAmount(),
-                    ]
-                ]
+                    ],
+                ],
             ]);
 
         } catch (ValidationException $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Datos de entrada no válidos',
-                'errors' => $e->errors()
+                'errors' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error al procesar el pago: ' . $e->getMessage()
+                'message' => 'Error al procesar el pago: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -87,58 +87,28 @@ class CreditPaymentController extends Controller
      */
     public function getCreditDetails(Credit $credit): JsonResponse
     {
-        $credit->load(['createdBy', 'payments']);
-        $credit->client();
+        $credit->load(['createdBy', 'client']);
 
         return response()->json([
             'success' => true,
             'data' => [
-                'location_cliente' => [
-                    'latitude' => $credit->client->latitude ?? null,
-                    'longitude' => $credit->client->longitude ?? null,
-                ],
+                'payments_history' => $credit->payments()->with('cobrador')->orderBy('payment_date', 'desc')->get(),
                 'credit' => $credit,
                 'summary' => [
                     'original_amount' => $credit->amount,
                     'interest_rate' => $credit->interest_rate,
-                    'total_amount' => $credit->calculateTotalAmount(),
-//                    'installment_amount' => $credit->calculateInstallmentAmount(),
                     'installment_amount' => $credit->installment_amount,
                     'total_installments' => $credit->total_installments,
-                    'current_balance' => $credit->getCurrentBalance(),
+                    'current_balance' => $credit->balance,
+                    'total_amount' => $credit->total_amount,
                     'total_paid' => $credit->getTotalPaidAmount(),
                     'pending_installments' => $credit->getPendingInstallments(),
                     'expected_installments' => $credit->getExpectedInstallments(),
                     'is_overdue' => $credit->isOverdue(),
                     'overdue_amount' => $credit->getOverdueAmount(),
                 ],
-                'payment_schedule' => $credit->getPaymentSchedule(),
-                'payments_history' => $credit->payments()->with('cobrador')->orderBy('payment_date', 'desc')->get(),
-            ]
-        ]);
-    }
-
-    /**
-     * Simulate a payment (without actually creating it)
-     */
-    public function simulatePayment(Request $request, Credit $credit): JsonResponse
-    {
-        $validated = $request->validate([
-            'amount' => 'required|numeric|min:0.01',
-        ]);
-
-        $simulation = $credit->processPayment($validated['amount']);
-
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'simulation' => $simulation,
-                'current_status' => [
-                    'current_balance' => $credit->getCurrentBalance(),
-                    'installment_amount' => $credit->calculateInstallmentAmount(),
-                    'pending_installments' => $credit->getPendingInstallments(),
-                ]
-            ]
+                'payment_schedule' => $credit->getPaymentSchedule()
+            ],
         ]);
     }
 
@@ -176,8 +146,8 @@ class CreditPaymentController extends Controller
                     'total_installments' => count($schedule),
                     'paid_installments' => $payments->count(),
                     'pending_installments' => count($schedule) - $payments->count(),
-                ]
-            ]
+                ],
+            ],
         ]);
     }
 
@@ -206,7 +176,7 @@ class CreditPaymentController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $overdueCredits
+            'data' => $overdueCredits,
         ]);
     }
 }

@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
@@ -21,6 +20,7 @@ class AuthController extends BaseController
             'password' => 'required|string|min:8|confirmed',
             'phone' => 'nullable|string|max:20|unique:users',
             'address' => 'nullable|string',
+            'ci' => 'required|string|max:20|unique:users,ci',
         ]);
 
         $user = User::create([
@@ -29,6 +29,7 @@ class AuthController extends BaseController
             'password' => Hash::make($request->password),
             'phone' => $request->phone,
             'address' => $request->address,
+            'ci' => $request->ci,
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -50,10 +51,10 @@ class AuthController extends BaseController
         ]);
 
         $emailOrPhone = $request->email_or_phone;
-        
+
         // Determinar si es email o teléfono
         $isEmail = filter_var($emailOrPhone, FILTER_VALIDATE_EMAIL);
-        
+
         if ($isEmail) {
             // Buscar por email
             $user = User::where('email', $emailOrPhone)->first();
@@ -62,7 +63,7 @@ class AuthController extends BaseController
             $user = User::where('phone', $emailOrPhone)->first();
         }
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (! $user || ! Hash::check($request->password, $user->password)) {
             throw ValidationException::withMessages([
                 'email_or_phone' => ['Las credenciales proporcionadas son incorrectas.'],
             ]);
@@ -72,8 +73,9 @@ class AuthController extends BaseController
         $token = $user->createToken('auth_token')->plainTextToken;
         $user->roles;
         $user->permissions;
+
         return $this->sendResponse([
-            'user' => $user,            
+            'user' => $user,
             'token' => $token,
         ], 'Inicio de sesión exitoso');
     }
@@ -110,7 +112,7 @@ class AuthController extends BaseController
 
         $emailOrPhone = $request->email_or_phone;
         $isEmail = filter_var($emailOrPhone, FILTER_VALIDATE_EMAIL);
-        
+
         if ($isEmail) {
             $exists = User::where('email', $emailOrPhone)->exists();
         } else {
@@ -119,7 +121,7 @@ class AuthController extends BaseController
 
         return $this->sendResponse([
             'exists' => $exists,
-            'type' => $isEmail ? 'email' : 'phone'
+            'type' => $isEmail ? 'email' : 'phone',
         ]);
     }
-} 
+}

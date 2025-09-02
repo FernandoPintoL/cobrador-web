@@ -3,7 +3,6 @@
 namespace App\Listeners;
 
 use App\Events\CreditRequiresAttention;
-use App\Services\WebSocketNotificationService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Log;
@@ -12,14 +11,12 @@ class SendCreditAttentionNotification implements ShouldQueue
 {
     use InteractsWithQueue;
 
-    protected $webSocketService;
-
     /**
-     * Create the event listener.
+     * No dependencies needed; broadcasting handled by Laravel Reverb
      */
-    public function __construct(WebSocketNotificationService $webSocketService)
+    public function __construct()
     {
-        $this->webSocketService = $webSocketService;
+        // no-op
     }
 
     /**
@@ -31,7 +28,7 @@ class SendCreditAttentionNotification implements ShouldQueue
      */
     public function handle(CreditRequiresAttention $event): void
     {
-        Log::info('CreditRequiresAttention received; WebSocket sending handled by WebSocketNotificationListener to avoid duplicates', [
+        Log::info('CreditRequiresAttention event will be broadcast via Reverb', [
             'credit_id' => $event->credit->id,
             'cobrador_id' => $event->cobrador->id ?? null,
         ]);

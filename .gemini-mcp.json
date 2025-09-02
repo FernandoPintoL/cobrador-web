@@ -1,0 +1,14 @@
+{
+    "servers": {
+        "mcpServers": {
+            "npm-server": {
+                "command": "npm",
+                "args": ["run", "mcp"]
+            },
+            "laravel-boost": {
+                "command": "php",
+                "args": ["artisan", "boost:mcp"]
+            }
+        }
+    }
+}

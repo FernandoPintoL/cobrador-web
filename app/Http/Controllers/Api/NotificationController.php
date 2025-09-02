@@ -72,7 +72,7 @@ class NotificationController extends BaseController
         $request->validate([
             'user_id' => 'required|exists:users,id',
             'payment_id' => 'nullable|exists:payments,id',
-            'type' => 'required|in:payment_received,payment_due,credit_approved,credit_rejected,system_alert',
+            'type' => 'required|in:payment_received,payment_due,credit_approved,credit_rejected,system_alert,cobrador_payment_received',
             'message' => 'required|string',
             'status' => 'in:unread,read,archived',
         ]);
@@ -82,7 +82,7 @@ class NotificationController extends BaseController
             'payment_id' => $request->payment_id,
             'type' => $request->type,
             'message' => $request->message,
-            'status' => $request->status,
+            'status' => $request->status ?? $notification->status,
         ]);
 
         $notification->load(['user', 'payment']);
@@ -141,4 +141,4 @@ class NotificationController extends BaseController
         $count = $user->notifications()->where('status', 'unread')->count();
         return $this->sendResponse(['unread_count' => $count]);
     }
-} 
+}

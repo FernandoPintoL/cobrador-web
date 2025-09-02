@@ -2,16 +2,14 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\CreditWaitingListUpdate;
 use App\Http\Controllers\Controller;
 use App\Models\Credit;
-use App\Models\User;
-use Illuminate\Http\Request;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
-use Carbon\Carbon;
-use App\Events\CreditWaitingListUpdate;
 
 class CreditWaitingListController extends Controller
 {
@@ -51,7 +49,7 @@ class CreditWaitingListController extends Controller
         return response()->json([
             'success' => true,
             'data' => $credits,
-            'count' => $credits->count()
+            'count' => $credits->count(),
         ]);
     }
 
@@ -91,7 +89,7 @@ class CreditWaitingListController extends Controller
         return response()->json([
             'success' => true,
             'data' => $credits,
-            'count' => $credits->count()
+            'count' => $credits->count(),
         ]);
     }
 
@@ -120,7 +118,7 @@ class CreditWaitingListController extends Controller
         return response()->json([
             'success' => true,
             'data' => $credits,
-            'count' => $credits->count()
+            'count' => $credits->count(),
         ]);
     }
 
@@ -150,7 +148,7 @@ class CreditWaitingListController extends Controller
         return response()->json([
             'success' => true,
             'data' => $credits,
-            'count' => $credits->count()
+            'count' => $credits->count(),
         ]);
     }
 
@@ -160,17 +158,17 @@ class CreditWaitingListController extends Controller
     public function approve(Request $request, Credit $credit): JsonResponse
     {
         // Verificar permisos
-        if (!Credit::userCanApprove(Auth::user())) {
+        if (! Credit::userCanApprove(Auth::user())) {
             return response()->json([
                 'success' => false,
-                'message' => 'No tienes permisos para aprobar créditos'
+                'message' => 'No tienes permisos para aprobar créditos',
             ], 403);
         }
 
         $request->validate([
             'scheduled_delivery_date' => 'sometimes|nullable|date|after_or_equal:now',
             'immediate_delivery' => 'sometimes|boolean',
-            'notes' => 'nullable|string|max:1000'
+            'notes' => 'nullable|string|max:1000',
         ]);
 
         DB::beginTransaction();
@@ -181,12 +179,11 @@ class CreditWaitingListController extends Controller
             if ($request->filled('scheduled_delivery_date')) {
                 $scheduledDate = Carbon::parse($request->scheduled_delivery_date);
             } else {
-                // Si no se envía fecha y se solicita inmediata, usar ahora
+                // Si se solicita inmediata, usar ahora; si no, por defecto mañana
                 if ($immediate) {
                     $scheduledDate = now();
                 } else {
-                    // Por compatibilidad, si no hay fecha, también permitir ahora
-                    $scheduledDate = now();
+                    $scheduledDate = now()->copy()->addDay();
                 }
             }
 
@@ -196,24 +193,36 @@ class CreditWaitingListController extends Controller
                 $request->notes
             );
 
-            if (!$approved) {
+            if (! $approved) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'No se puede aprobar este crédito. Verifica su estado actual.'
+                    'message' => 'No se puede aprobar este crédito. Verifica su estado actual.',
                 ], 422);
             }
+
+            // Ajustar cronograma: start_date = día siguiente de la aprobación
+            $approvedAt = $credit->approved_at ?? now();
+            $startDate = Carbon::parse($approvedAt)->addDay()->toDateString();
+            $credit->start_date = $startDate;
+            // Asegurar que end_date sea posterior a start_date; si no, mover +30 días (fallback seguro)
+            if (! $credit->end_date || Carbon::parse($credit->end_date)->lte(Carbon::parse($startDate))) {
+                $credit->end_date = Carbon::parse($startDate)->addDays(30)->toDateString();
+            }
+            $credit->save();
 
             // Si la fecha es ahora o en el pasado (o immediate=true), entregar de inmediato
             $shouldDeliverNow = $immediate || ($scheduledDate && $scheduledDate <= now());
             $deliveredNow = false;
             if ($shouldDeliverNow) {
                 $deliveredNow = $credit->deliverToClient(Auth::id(), $request->notes);
-                if (!$deliveredNow) {
+                if (! $deliveredNow) {
                     DB::rollBack();
+
                     return response()->json([
                         'success' => false,
-                        'message' => 'No se pudo entregar el crédito inmediatamente. Verifica su estado actual.'
+                        'message' => 'No se pudo entregar el crédito inmediatamente. Verifica su estado actual.',
                     ], 422);
                 }
             }
@@ -233,15 +242,16 @@ class CreditWaitingListController extends Controller
                     : 'Crédito aprobado para entrega exitosamente',
                 'data' => [
                     'credit' => $credit->fresh(),
-                    'delivery_status' => $credit->fresh()->getDeliveryStatusInfo()
-                ]
+                    'delivery_status' => $credit->fresh()->getDeliveryStatusInfo(),
+                ],
             ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error al aprobar el crédito: ' . $e->getMessage()
+                'message' => 'Error al aprobar el crédito: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -252,26 +262,27 @@ class CreditWaitingListController extends Controller
     public function reject(Request $request, Credit $credit): JsonResponse
     {
         // Verificar permisos
-        if (!Credit::userCanApprove(Auth::user())) {
+        if (! Credit::userCanApprove(Auth::user())) {
             return response()->json([
                 'success' => false,
-                'message' => 'No tienes permisos para rechazar créditos'
+                'message' => 'No tienes permisos para rechazar créditos',
             ], 403);
         }
 
         $request->validate([
-            'reason' => 'required|string|max:1000'
+            'reason' => 'required|string|max:1000',
         ]);
 
         DB::beginTransaction();
         try {
             $success = $credit->reject(Auth::id(), $request->reason);
 
-            if (!$success) {
+            if (! $success) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'No se puede rechazar este crédito. Verifica su estado actual.'
+                    'message' => 'No se puede rechazar este crédito. Verifica su estado actual.',
                 ], 422);
             }
 
@@ -285,15 +296,16 @@ class CreditWaitingListController extends Controller
                 'message' => 'Crédito rechazado exitosamente',
                 'data' => [
                     'credit' => $credit->fresh(),
-                    'delivery_status' => $credit->fresh()->getDeliveryStatusInfo()
-                ]
+                    'delivery_status' => $credit->fresh()->getDeliveryStatusInfo(),
+                ],
             ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error al rechazar el crédito: ' . $e->getMessage()
+                'message' => 'Error al rechazar el crédito: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -304,26 +316,27 @@ class CreditWaitingListController extends Controller
     public function deliver(Request $request, Credit $credit): JsonResponse
     {
         // Verificar permisos
-        if (!Credit::userCanDeliver(Auth::user())) {
+        if (! Credit::userCanDeliver(Auth::user())) {
             return response()->json([
                 'success' => false,
-                'message' => 'No tienes permisos para entregar créditos'
+                'message' => 'No tienes permisos para entregar créditos',
             ], 403);
         }
 
         $request->validate([
-            'notes' => 'nullable|string|max:1000'
+            'notes' => 'nullable|string|max:1000',
         ]);
 
         DB::beginTransaction();
         try {
             $success = $credit->deliverToClient(Auth::id(), $request->notes);
 
-            if (!$success) {
+            if (! $success) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'No se puede entregar este crédito. Verifica su estado actual.'
+                    'message' => 'No se puede entregar este crédito. Verifica su estado actual.',
                 ], 422);
             }
 
@@ -337,15 +350,16 @@ class CreditWaitingListController extends Controller
                 'message' => 'Crédito entregado al cliente exitosamente',
                 'data' => [
                     'credit' => $credit->fresh(),
-                    'delivery_status' => $credit->fresh()->getDeliveryStatusInfo()
-                ]
+                    'delivery_status' => $credit->fresh()->getDeliveryStatusInfo(),
+                ],
             ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error al entregar el crédito: ' . $e->getMessage()
+                'message' => 'Error al entregar el crédito: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -356,16 +370,16 @@ class CreditWaitingListController extends Controller
     public function reschedule(Request $request, Credit $credit): JsonResponse
     {
         // Verificar permisos
-        if (!Credit::userCanApprove(Auth::user())) {
+        if (! Credit::userCanApprove(Auth::user())) {
             return response()->json([
                 'success' => false,
-                'message' => 'No tienes permisos para reprogramar entregas'
+                'message' => 'No tienes permisos para reprogramar entregas',
             ], 403);
         }
 
         $request->validate([
             'new_delivery_date' => 'required|date|after:now',
-            'reason' => 'nullable|string|max:500'
+            'reason' => 'nullable|string|max:500',
         ]);
 
         DB::beginTransaction();
@@ -377,11 +391,12 @@ class CreditWaitingListController extends Controller
                 $request->reason
             );
 
-            if (!$success) {
+            if (! $success) {
                 DB::rollBack();
+
                 return response()->json([
                     'success' => false,
-                    'message' => 'No se puede reprogramar este crédito. Verifica su estado actual.'
+                    'message' => 'No se puede reprogramar este crédito. Verifica su estado actual.',
                 ], 422);
             }
 
@@ -395,15 +410,16 @@ class CreditWaitingListController extends Controller
                 'message' => 'Fecha de entrega reprogramada exitosamente',
                 'data' => [
                     'credit' => $credit->fresh(),
-                    'delivery_status' => $credit->fresh()->getDeliveryStatusInfo()
-                ]
+                    'delivery_status' => $credit->fresh()->getDeliveryStatusInfo(),
+                ],
             ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error al reprogramar la entrega: ' . $e->getMessage()
+                'message' => 'Error al reprogramar la entrega: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -417,8 +433,8 @@ class CreditWaitingListController extends Controller
             'success' => true,
             'data' => [
                 'credit_id' => $credit->id,
-                'delivery_status' => $credit->getDeliveryStatusInfo()
-            ]
+                'delivery_status' => $credit->getDeliveryStatusInfo(),
+            ],
         ]);
     }
 
@@ -439,8 +455,8 @@ class CreditWaitingListController extends Controller
                 'waiting_delivery' => $waitingDelivery,
                 'ready_today' => $readyToday,
                 'overdue_delivery' => $overdue,
-                'total_in_waiting_list' => $pendingApproval + $waitingDelivery
-            ]
+                'total_in_waiting_list' => $pendingApproval + $waitingDelivery,
+            ],
         ]);
     }
 }
