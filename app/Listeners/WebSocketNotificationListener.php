@@ -22,6 +22,18 @@ class WebSocketNotificationListener implements ShouldQueue
     public function __construct()
     {
         $this->websocketUrl = config('services.websocket.url', env('WEBSOCKET_URL', 'http://localhost:3001'));
+
+        // Proactive logging for production misconfiguration on Railway
+        $env = app()->environment();
+        $secret = config('services.websocket.ws_secret') ?? env('WS_SECRET');
+        if ($env === 'production') {
+            if (empty($this->websocketUrl)) {
+                Log::warning('WEBSOCKET_URL is not configured. Set WEBSOCKET_URL to your Node Socket server base URL (e.g., https://your-ws.railway.app)');
+            }
+            if (empty($secret)) {
+                Log::warning('WS_SECRET is not configured. Node server requires X-WS-SECRET in production. Set WS_SECRET in Laravel and Node with the same value.');
+            }
+        }
     }
 
     /**
