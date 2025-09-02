@@ -168,6 +168,19 @@ app.post('/credit-notification', (req, res) => {
         cobradorId: cobrador?.id
     });
 
+    // Emitir el mismo log a los clientes para que se muestre en el HTML de prueba
+    try {
+        const payload = {
+            creditId: credit?.id,
+            userId: user?.id,
+            managerId: manager?.id,
+            cobradorId: cobrador?.id
+        };
+        io.emit('server_log', `🏦 Credit notification received: ${action} ${JSON.stringify(payload)}`);
+    } catch (_) {
+        // no-op
+    }
+
     try {
         let notificationSent = false;
 
@@ -185,6 +198,7 @@ app.post('/credit-notification', (req, res) => {
                         }
                     );
                     notificationSent = notifyUser(io, manager.id, 'credit_waiting_approval', notificationData);
+                    try { io.emit('server_log', `📨 Notification sent to user ${manager.id}: credit_waiting_approval`); } catch (_) {}
                 }
                 break;
 
@@ -202,6 +216,7 @@ app.post('/credit-notification', (req, res) => {
                         }
                     );
                     notificationSent = notifyUser(io, cobrador.id, 'credit_approved', notificationData);
+                    try { io.emit('server_log', `📨 Notification sent to user ${cobrador.id}: credit_approved`); } catch (_) {}
                 }
                 break;
 
@@ -219,6 +234,7 @@ app.post('/credit-notification', (req, res) => {
                         }
                     );
                     notificationSent = notifyUser(io, cobrador.id, 'credit_rejected', notificationData);
+                    try { io.emit('server_log', `📨 Notification sent to user ${cobrador.id}: credit_rejected`); } catch (_) {}
                 }
                 break;
 
@@ -236,6 +252,7 @@ app.post('/credit-notification', (req, res) => {
                         }
                     );
                     notificationSent = notifyUser(io, manager.id, 'credit_delivered', notificationData);
+                    try { io.emit('server_log', `📨 Notification sent to user ${manager.id}: credit_delivered`); } catch (_) {}
                 }
                 break;
 
@@ -251,6 +268,7 @@ app.post('/credit-notification', (req, res) => {
                         }
                     );
                     notificationSent = notifyUser(io, cobrador.id, 'credit_attention_required', notificationData);
+                    try { io.emit('server_log', `📨 Notification sent to user ${cobrador.id}: credit_attention_required`); } catch (_) {}
                 }
                 break;
 

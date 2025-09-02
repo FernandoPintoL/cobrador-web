@@ -35,4 +35,12 @@ return [
         ],
     ],
 
+    // Custom WebSocket (Node.js) bridge configuration
+    'websocket' => [
+        // Full base URL for the WebSocket HTTP bridge (e.g. https://ws.example.com or http://192.168.0.10:3001)
+        'url' => env('WEBSOCKET_URL', null),
+        // Shared secret to authorize backend-to-WS server requests (sent as X-WS-SECRET)
+        'ws_secret' => env('WS_SECRET', null),
+    ],
+
 ];

@@ -2,9 +2,9 @@
 
 namespace App\Listeners;
 
+use App\Events\CreditRequiresAttention;
 use App\Events\CreditWaitingListUpdate;
 use App\Events\PaymentReceived;
-use App\Events\CreditRequiresAttention;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Http;
@@ -21,7 +21,7 @@ class WebSocketNotificationListener implements ShouldQueue
      */
     public function __construct()
     {
-        $this->websocketUrl = env('WEBSOCKET_URL', 'http://localhost:3001');
+        $this->websocketUrl = config('services.websocket.url', env('WEBSOCKET_URL', 'http://localhost:3001'));
     }
 
     /**
@@ -113,7 +113,7 @@ class WebSocketNotificationListener implements ShouldQueue
     {
         try {
             $secret = config('services.websocket.ws_secret') ?? env('WS_SECRET');
-            $url = rtrim($this->websocketUrl, '/') . $endpoint;
+            $url = rtrim($this->websocketUrl, '/').$endpoint;
 
             $request = Http::timeout(10);
             if ($secret) {
@@ -126,7 +126,7 @@ class WebSocketNotificationListener implements ShouldQueue
 
             $response = $request->post($url, $payload);
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::error('WebSocket notification failed', [
                     'endpoint' => $endpoint,
                     'status' => $response->status(),

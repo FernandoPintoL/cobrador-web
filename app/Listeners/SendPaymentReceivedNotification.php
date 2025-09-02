@@ -33,8 +33,8 @@ class SendPaymentReceivedNotification
                 'amount' => $payment->amount,
             ]);
 
-            // Notify Node WebSocket server for cobrador and (optionally) manager
-            $this->webSocketService->sendPaymentNotification($event->payment, $event->cobrador, $manager);
+            // Node WebSocket forwarding is centralized in WebSocketNotificationListener to avoid duplicates.
+            // $this->webSocketService->sendPaymentNotification($event->payment, $event->cobrador, $manager);
 
             // Notificar también al manager del cobrador (notificación en base de datos)
             $this->notifyManager($event);

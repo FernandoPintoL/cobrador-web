@@ -220,6 +220,11 @@
             socket.on('user_disconnected', (data) => {
                 addMessage(`👋 Usuario desconectado: ${data.userName} (${data.userType})`, 'info');
             });
+
+            // Mostrar logs del servidor (console logs reenviados)
+            socket.on('server_log', (text) => {
+                addMessage(text, 'info');
+            });
         }
 
         function authenticate() {

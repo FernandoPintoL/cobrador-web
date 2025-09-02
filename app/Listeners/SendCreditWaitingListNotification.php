@@ -57,8 +57,8 @@ class SendCreditWaitingListNotification
 
             event(new TestNotification($notification, $manager));
 
-            // Notify Node WebSocket server for manager
-            $this->webSocketService->sendCreditNotification($credit, 'created', $user, manager: $manager, cobrador: $cobrador);
+            // Node WebSocket forwarding is centralized in WebSocketNotificationListener to avoid duplicates.
+            // $this->webSocketService->sendCreditNotification($credit, 'created', $user, manager: $manager, cobrador: $cobrador);
 
             Log::info("Notification sent to manager {$manager->id} for credit {$credit->id}");
         }
@@ -79,8 +79,8 @@ class SendCreditWaitingListNotification
 
             event(new TestNotification($notification, $cobrador));
 
-            // Notify Node WebSocket server for cobrador
-            $this->webSocketService->sendCreditNotification($credit, 'approved', $user, cobrador: $cobrador);
+            // Node WebSocket forwarding is centralized in WebSocketNotificationListener to avoid duplicates.
+            // $this->webSocketService->sendCreditNotification($credit, 'approved', $user, cobrador: $cobrador);
 
             Log::info("Approval notification sent to cobrador {$cobrador->id} for credit {$credit->id}");
         }
@@ -101,8 +101,8 @@ class SendCreditWaitingListNotification
 
             event(new TestNotification($notification, $cobrador));
 
-            // Notify Node WebSocket server for cobrador
-            $this->webSocketService->sendCreditNotification($credit, 'rejected', $user, cobrador: $cobrador);
+            // Node WebSocket forwarding is centralized in WebSocketNotificationListener to avoid duplicates.
+            // $this->webSocketService->sendCreditNotification($credit, 'rejected', $user, cobrador: $cobrador);
 
             Log::info("Rejection notification sent to cobrador {$cobrador->id} for credit {$credit->id}");
         }
@@ -125,8 +125,8 @@ class SendCreditWaitingListNotification
 
             event(new TestNotification($notification, $manager));
 
-            // Notify Node WebSocket server for manager
-            $this->webSocketService->sendCreditNotification($credit, 'delivered', $user, manager: $manager, cobrador: $cobrador);
+            // Node WebSocket forwarding is centralized in WebSocketNotificationListener to avoid duplicates.
+            // $this->webSocketService->sendCreditNotification($credit, 'delivered', $user, manager: $manager, cobrador: $cobrador);
 
             Log::info("Delivery notification sent to manager {$manager->id} for credit {$credit->id}");
         }

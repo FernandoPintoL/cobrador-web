@@ -31,8 +31,8 @@ class DatabaseSeeder extends Seeder
 
         // Crear usuario manager por defecto
         $manager = User::factory()->create([
-            'name' => 'Fernando Manager',
-            'email' => 'fernando@manager.com',
+            'name' => 'Manager',
+            'email' => 'app@manager.com',
             'ci' => '8956887',
             'password' => bcrypt('password'),
         ]);
@@ -42,8 +42,8 @@ class DatabaseSeeder extends Seeder
 
         // user cobrador
         $cobrador = User::factory()->create([
-            'name' => 'Fernando Cobrador',
-            'email' => 'fernando@cobrador.com',
+            'name' => 'App Cobrador',
+            'email' => 'app@cobrador.com',
             'ci' => '8956886',
             'assigned_manager_id' => $manager->id,
             'password' => bcrypt('password'),
