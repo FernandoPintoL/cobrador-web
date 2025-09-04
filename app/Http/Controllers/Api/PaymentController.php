@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Events\PaymentReceived;
 use App\Models\Credit;
 use App\Models\Payment;
 use App\Models\User;
@@ -120,7 +119,7 @@ class PaymentController extends BaseController
         $payment->load(['credit.client', 'receivedBy']);
 
         // Disparar evento de pago recibido
-        event(new PaymentReceived($payment));
+        //        event(new PaymentReceived($payment));
 
         return $this->sendResponse($payment, 'Pago registrado exitosamente');
     }

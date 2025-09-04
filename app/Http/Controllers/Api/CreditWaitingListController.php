@@ -343,7 +343,7 @@ class CreditWaitingListController extends Controller
             DB::commit();
 
             // Disparar evento de actualización
-            event(new CreditWaitingListUpdate($credit->fresh(), 'delivered', Auth::user()));
+            //            event(new CreditWaitingListUpdate($credit->fresh(), 'delivered', Auth::user()));
 
             return response()->json([
                 'success' => true,
@@ -403,7 +403,7 @@ class CreditWaitingListController extends Controller
             DB::commit();
 
             // Disparar evento de actualización
-            event(new CreditWaitingListUpdate($credit->fresh(), 'rescheduled', Auth::user()));
+            //            event(new CreditWaitingListUpdate($credit->fresh(), 'rescheduled', Auth::user()));
 
             return response()->json([
                 'success' => true,

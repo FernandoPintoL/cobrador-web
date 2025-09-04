@@ -6,12 +6,11 @@ use App\Events\CreditWaitingListUpdate;
 use App\Events\TestNotification;
 use App\Models\Notification;
 use App\Models\User;
-use App\Services\WebSocketNotificationService;
 use Illuminate\Support\Facades\Log;
 
 class SendCreditWaitingListNotification
 {
-    public function __construct(public WebSocketNotificationService $webSocketService) {}
+    public function __construct() {}
 
     public function handle(CreditWaitingListUpdate $event): void
     {
@@ -125,8 +124,7 @@ class SendCreditWaitingListNotification
 
             event(new TestNotification($notification, $manager));
 
-            // Node WebSocket forwarding is centralized in WebSocketNotificationListener to avoid duplicates.
-            // $this->webSocketService->sendCreditNotification($credit, 'delivered', $user, manager: $manager, cobrador: $cobrador);
+            // WebSocket Node.js forwarding removed
 
             Log::info("Delivery notification sent to manager {$manager->id} for credit {$credit->id}");
         }

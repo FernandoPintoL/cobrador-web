@@ -6,11 +6,10 @@ use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class PaymentReceived implements ShouldBroadcast
+class PaymentReceived
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 

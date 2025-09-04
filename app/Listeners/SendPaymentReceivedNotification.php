@@ -5,15 +5,11 @@ namespace App\Listeners;
 use App\Events\PaymentReceived;
 use App\Events\TestNotification;
 use App\Models\Notification;
-use App\Services\WebSocketNotificationService;
 use Illuminate\Support\Facades\Log;
 
 class SendPaymentReceivedNotification
 {
-    /**
-     * Inject WebSocket service for Node.js notifications
-     */
-    public function __construct(public WebSocketNotificationService $webSocketService) {}
+    public function __construct() {}
 
     /**
      * Handle the event.
@@ -79,7 +75,7 @@ class SendPaymentReceivedNotification
             ]);
 
             // Enviar notificación en tiempo real al manager vía broadcasting
-            event(new TestNotification($managerNotification, $manager));
+            //            event(new TestNotification($managerNotification, $manager));
 
             Log::info('Manager notification sent for payment received', [
                 'manager_id' => $manager->id,

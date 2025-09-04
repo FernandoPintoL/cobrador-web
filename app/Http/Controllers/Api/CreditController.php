@@ -18,6 +18,29 @@ class CreditController extends BaseController
     {
         $query = Credit::with(['client', 'payments', 'createdBy']);
 
+        // Computed columns for filtering and response
+        // Build Postgres expressions/subqueries we will use both for select and filtering
+        $totalPaidSub = "(SELECT COALESCE(SUM(amount),0) FROM payments WHERE payments.credit_id = credits.id AND status = 'completed')";
+        $completedCountSub = "(SELECT COUNT(*) FROM payments WHERE payments.credit_id = credits.id AND status = 'completed')";
+        $expectedExpr = "CASE
+                WHEN CURRENT_DATE < start_date THEN 0
+                WHEN frequency = 'daily' THEN (CURRENT_DATE - start_date) + 1
+                WHEN frequency = 'weekly' THEN FLOOR(((CURRENT_DATE - start_date)) / 7.0)::int + 1
+                WHEN frequency = 'biweekly' THEN FLOOR(((CURRENT_DATE - start_date)) / 14.0)::int + 1
+                WHEN frequency = 'monthly' THEN ((EXTRACT(YEAR FROM AGE(CURRENT_DATE, start_date)) * 12) + EXTRACT(MONTH FROM AGE(CURRENT_DATE, start_date)))::int + 1
+                ELSE 0 END";
+        $pendingExpr = "GREATEST(($expectedExpr) - ($completedCountSub), 0)";
+        $isOverdueExpr = "CASE WHEN ($completedCountSub) < ($expectedExpr) THEN 1 ELSE 0 END";
+        $overdueAmountExpr = "CASE WHEN ($completedCountSub) < ($expectedExpr) THEN (($pendingExpr) * installment_amount) ELSE 0 END";
+
+        $query->select('credits.*')
+            ->selectRaw("$totalPaidSub as total_paid")
+            ->selectRaw("$completedCountSub as completed_payments_count")
+            ->selectRaw("$expectedExpr as expected_installments")
+            ->selectRaw("$pendingExpr as pending_installments")
+            ->selectRaw("$isOverdueExpr as is_overdue")
+            ->selectRaw("$overdueAmountExpr as overdue_amount");
+
         // Visibilidad x rol
         $currentUser = Auth::user();
         if ($currentUser) {
@@ -119,6 +142,39 @@ class CreditController extends BaseController
             })
             ->when($request->balance_max, function ($query, $value) {
                 $query->where('balance', '<=', (float) $value);
+            })
+            // Filtros por métricas calculadas (PostgreSQL-safe, usando expresiones/subconsultas)
+            ->when($request->total_paid_min, function ($q, $v) use ($totalPaidSub) {
+                $q->whereRaw("$totalPaidSub >= ?", [(float) $v]);
+            })
+            ->when($request->total_paid_max, function ($q, $v) use ($totalPaidSub) {
+                $q->whereRaw("$totalPaidSub <= ?", [(float) $v]);
+            })
+            ->when($request->expected_installments_min, function ($q, $v) use ($expectedExpr) {
+                $q->whereRaw("($expectedExpr) >= ?", [(int) $v]);
+            })
+            ->when($request->expected_installments_max, function ($q, $v) use ($expectedExpr) {
+                $q->whereRaw("($expectedExpr) <= ?", [(int) $v]);
+            })
+            ->when($request->pending_installments_min, function ($q, $v) use ($pendingExpr) {
+                $q->whereRaw("($pendingExpr) >= ?", [(int) $v]);
+            })
+            ->when($request->pending_installments_max, function ($q, $v) use ($pendingExpr) {
+                $q->whereRaw("($pendingExpr) <= ?", [(int) $v]);
+            })
+            ->when(! is_null($request->input('is_overdue')), function ($q) use ($request, $isOverdueExpr) {
+                $want = filter_var($request->input('is_overdue'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+                if ($want === true) {
+                    $q->whereRaw("($isOverdueExpr) = 1");
+                } elseif ($want === false) {
+                    $q->whereRaw("($isOverdueExpr) = 0");
+                }
+            })
+            ->when($request->overdue_amount_min, function ($q, $v) use ($overdueAmountExpr) {
+                $q->whereRaw("($overdueAmountExpr) >= ?", [(float) $v]);
+            })
+            ->when($request->overdue_amount_max, function ($q, $v) use ($overdueAmountExpr) {
+                $q->whereRaw("($overdueAmountExpr) <= ?", [(float) $v]);
             });
 
         $perPage = (int) ($request->get('per_page', 15));
@@ -342,7 +398,7 @@ class CreditController extends BaseController
 
         // Disparar evento si el crédito fue creado en lista de espera
         if ($initialStatus === 'pending_approval') {
-            event(new CreditWaitingListUpdate($credit, 'created', $currentUser));
+            //            event(new CreditWaitingListUpdate($credit, 'created', $currentUser));
         }
 
         $message = 'Crédito creado exitosamente';
@@ -453,7 +509,7 @@ class CreditController extends BaseController
         $credit->load(['client', 'createdBy']);
 
         // Disparar evento para notificaciones
-        event(new CreditWaitingListUpdate($credit, 'created', $currentUser));
+        //        event(new CreditWaitingListUpdate($credit, 'created', $currentUser));
 
         return $this->sendResponse([
             'credit' => $credit,

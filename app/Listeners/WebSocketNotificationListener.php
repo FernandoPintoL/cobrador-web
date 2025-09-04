@@ -21,7 +21,7 @@ class WebSocketNotificationListener implements ShouldQueue
      */
     public function __construct()
     {
-        $this->websocketUrl = config('services.websocket.url', env('WEBSOCKET_URL', 'http://localhost:3001'));
+        /*$this->websocketUrl = config('services.websocket.url', env('WEBSOCKET_URL', 'http://localhost:3001'));
 
         // Proactive logging for production misconfiguration on Railway
         $env = app()->environment();
@@ -33,7 +33,7 @@ class WebSocketNotificationListener implements ShouldQueue
             if (empty($secret)) {
                 Log::warning('WS_SECRET is not configured. Node server requires X-WS-SECRET in production. Set WS_SECRET in Laravel and Node with the same value.');
             }
-        }
+        }*/
     }
 
     /**
@@ -41,7 +41,7 @@ class WebSocketNotificationListener implements ShouldQueue
      */
     public function handleCreditWaitingListUpdate(CreditWaitingListUpdate $event)
     {
-        $payload = [
+        /*$payload = [
             'action' => $event->action,
             'credit' => $event->broadcastWith()['credit'],
             'user' => $event->broadcastWith()['user'],
@@ -70,13 +70,13 @@ class WebSocketNotificationListener implements ShouldQueue
             }
         }
 
-        $this->sendToWebSocket('/credit-notification', $payload);
+        //        $this->sendToWebSocket('/credit-notification', $payload);
 
         Log::info('Credit waiting list update sent to WebSocket', [
             'action' => $event->action,
             'credit_id' => $event->credit->id,
             'user_id' => $event->user->id,
-        ]);
+        ]);*/
     }
 
     /**
@@ -84,16 +84,16 @@ class WebSocketNotificationListener implements ShouldQueue
      */
     public function handlePaymentReceived(PaymentReceived $event)
     {
-        $payload = $event->broadcastWith();
+        /*$payload = $event->broadcastWith();
 
-        $this->sendToWebSocket('/payment-notification', $payload);
+        //        $this->sendToWebSocket('/payment-notification', $payload);
 
         Log::info('Payment received notification sent to WebSocket', [
             'payment_id' => $event->payment->id,
             'amount' => $event->payment->amount,
             'cobrador_id' => $event->cobrador?->id,
             'manager_id' => $event->manager?->id,
-        ]);
+        ]);*/
     }
 
     /**
@@ -101,7 +101,7 @@ class WebSocketNotificationListener implements ShouldQueue
      */
     public function handleCreditRequiresAttention(CreditRequiresAttention $event)
     {
-        $payload = [
+        /*$payload = [
             'action' => 'requires_attention',
             'credit' => $event->broadcastWith()['credit'],
             'cobrador' => $event->broadcastWith()['cobrador'],
@@ -109,13 +109,13 @@ class WebSocketNotificationListener implements ShouldQueue
             'reason' => $event->reason,
         ];
 
-        $this->sendToWebSocket('/credit-notification', $payload);
+        //        $this->sendToWebSocket('/credit-notification', $payload);
 
         Log::info('Credit attention notification sent to WebSocket', [
             'credit_id' => $event->credit->id,
             'reason' => $event->reason,
             'cobrador_id' => $event->cobrador?->id,
-        ]);
+        ]);*/
     }
 
     /**
@@ -123,7 +123,7 @@ class WebSocketNotificationListener implements ShouldQueue
      */
     private function sendToWebSocket(string $endpoint, array $payload)
     {
-        try {
+        /*try {
             $secret = config('services.websocket.ws_secret') ?? env('WS_SECRET');
             $url = rtrim($this->websocketUrl, '/').$endpoint;
 
@@ -152,6 +152,6 @@ class WebSocketNotificationListener implements ShouldQueue
                 'error' => $e->getMessage(),
                 'payload' => $payload,
             ]);
-        }
+        }*/
     }
 }

@@ -12,8 +12,6 @@ use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\RouteController;
 use App\Http\Controllers\Api\UserController;
-use App\Http\Controllers\Api\WebSocketNotificationController;
-use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -32,27 +30,10 @@ Route::post('/register', [AuthController::class, 'register'])->name('api.registe
 Route::post('/login', [AuthController::class, 'login'])->name('api.login');
 Route::post('/check-exists', [AuthController::class, 'checkExists'])->name('api.check-exists');
 
-// Proveer configuración de Reverb / Pusher-compat para clientes móviles (Flutter)
-Route::get('/reverb/config', function () {
-    $reverb = Config::get('broadcasting.connections.reverb');
-    $options = $reverb['options'] ?? [];
-
-    return response()->json([
-        'broadcaster' => 'reverb',
-        'key' => (string) ($reverb['key'] ?? ''),
-        'wsHost' => (string) ($options['host'] ?? '127.0.0.1'),
-        'wsPort' => (int) ($options['port'] ?? 8080),
-        'scheme' => (string) ($options['scheme'] ?? 'http'),
-        'useTLS' => (bool) ($options['useTLS'] ?? false),
-        // Compatibilidad con clientes Pusher que requieren 'cluster' aunque Reverb no lo usa
-        'cluster' => 'mt1',
-        // Endpoint de autenticación por defecto de Laravel para canales privados/presencia
-        'authEndpoint' => url('/broadcasting/auth'),
-    ]);
-})->name('api.reverb.config');
+// Eliminado: configuración de Reverb ya no disponible
 
 // Ruta temporal para testing (sin autenticación)
-//Route::get('/users-test', [UserController::class, 'index'])->name('api.users.test');
+// Route::get('/users-test', [UserController::class, 'index'])->name('api.users.test');
 
 // Rutas protegidas
 Route::middleware('auth:sanctum')->group(function () {
@@ -141,11 +122,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/credits-requiring-attention', [CreditController::class, 'getCreditsRequiringAttention'])->name('api.credits.requiring-attention');
 
     // DEBUG: Ruta temporal para debuggear problema de listado de cobrador
-//    Route::get('/debug-cobrador-credits', [CreditController::class, 'debugCobradorCredits'])->name('api.debug.cobrador-credits');
+    //    Route::get('/debug-cobrador-credits', [CreditController::class, 'debugCobradorCredits'])->name('api.debug.cobrador-credits');
 
     // Créditos - Gestión de aprobación y entrega (preferir endpoints unificados de waiting-list)
     // Rutas duplicadas removidas: approve/reject/deliver/reschedule en CreditController
-//    Route::post('/credits/waiting-list', [CreditController::class, 'storeInWaitingList'])->name('api.credits.store-waiting-list');
+    //    Route::post('/credits/waiting-list', [CreditController::class, 'storeInWaitingList'])->name('api.credits.store-waiting-list');
 
     // Créditos atrasados
     Route::get('/credits/overdue', [CreditPaymentController::class, 'getOverdueCredits'])->name('api.credits.overdue');
@@ -156,7 +137,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/details', [CreditPaymentController::class, 'getCreditDetails'])->name('api.credits.details');
         Route::get('/payment-schedule', [CreditPaymentController::class, 'getPaymentSchedule'])->name('api.credits.payment-schedule');
         // Route::post('/payments', [CreditPaymentController::class, 'processPayment'])->name('api.credits.process-payment');
-//        Route::post('/simulate-payment', [CreditPaymentController::class, 'simulatePayment'])->name('api.credits.simulate-payment');
+        //        Route::post('/simulate-payment', [CreditPaymentController::class, 'simulatePayment'])->name('api.credits.simulate-payment');
     });
 
     // Sistema de Lista de Espera para Créditos - UNIFICADO
@@ -229,12 +210,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard/alerts', [DashboardController::class, 'getAlerts'])->name('api.dashboard.alerts');
     Route::get('/dashboard/performance-metrics', [DashboardController::class, 'getPerformanceMetrics'])->name('api.dashboard.performance-metrics');
 
-    // WebSocket Notifications
-    Route::prefix('websocket')->group(function () {
-        Route::post('/credit-attention/{credit}', [WebSocketNotificationController::class, 'sendCreditAttentionNotification'])->name('api.websocket.credit-attention');
-        Route::post('/payment-notification', [WebSocketNotificationController::class, 'sendPaymentNotification'])->name('api.websocket.payment-notification');
-        Route::get('/notifications', [WebSocketNotificationController::class, 'getRealtimeNotifications'])->name('api.websocket.notifications');
-        Route::post('/test', [WebSocketNotificationController::class, 'testWebSocket'])->name('api.websocket.test');
-        Route::get('/test-connection', [WebSocketNotificationController::class, 'testDirectWebSocket'])->name('api.websocket.test-connection');
-    });
+    // WebSocket Notifications eliminadas
 });
