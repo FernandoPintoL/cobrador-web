@@ -254,3 +254,53 @@ it('aplica filtros de frecuencia y montos', function () {
     $ids2 = collect($resp2->json('data.data') ?? $resp2->json('data'))->pluck('id')->all();
     expect($ids2)->toContain($c2->id)->and($ids2)->not->toContain($c1->id);
 });
+
+
+it('filtra por search aceptando nombre, ci y phone', function () {
+    makeRole('cobrador');
+    makeRole('client');
+
+    $cobrador = User::factory()->create();
+    $cobrador->assignRole('cobrador');
+
+    $client = User::factory()->create([
+        'assigned_cobrador_id' => $cobrador->id,
+        'name' => 'Juan Perez',
+        'ci' => '8210151',
+        'phone' => '76543210',
+    ]);
+    $client->assignRole('client');
+
+    $credit = Credit::create([
+        'client_id' => $client->id,
+        'created_by' => $cobrador->id,
+        'amount' => 100,
+        'interest_rate' => 10,
+        'total_amount' => 110,
+        'balance' => 110,
+        'frequency' => 'daily',
+        'start_date' => now()->subDays(1),
+        'end_date' => now()->addDays(10),
+        'status' => 'active',
+    ]);
+
+    $this->actingAs($cobrador, 'sanctum');
+
+    // por nombre
+    $r1 = $this->getJson('/api/credits?search=Juan');
+    $r1->assertSuccessful();
+    $ids1 = collect($r1->json('data.data') ?? $r1->json('data'))->pluck('id')->all();
+    expect($ids1)->toContain($credit->id);
+
+    // por CI
+    $r2 = $this->getJson('/api/credits?search=8210151');
+    $r2->assertSuccessful();
+    $ids2 = collect($r2->json('data.data') ?? $r2->json('data'))->pluck('id')->all();
+    expect($ids2)->toContain($credit->id);
+
+    // por phone
+    $r3 = $this->getJson('/api/credits?search=76543210');
+    $r3->assertSuccessful();
+    $ids3 = collect($r3->json('data.data') ?? $r3->json('data'))->pluck('id')->all();
+    expect($ids3)->toContain($credit->id);
+});
