@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\InterestRateController;
 use App\Http\Controllers\Api\MapController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RouteController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
@@ -43,10 +44,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Usuarios
     Route::apiResource('users', UserController::class)->names([
-        'index' => 'api.users.index',
-        'store' => 'api.users.store',
-        'show' => 'api.users.show',
-        'update' => 'api.users.update',
+        'index'   => 'api.users.index',
+        'store'   => 'api.users.store',
+        'show'    => 'api.users.show',
+        'update'  => 'api.users.update',
         'destroy' => 'api.users.destroy',
     ]);
     Route::get('/users/{user}/roles', [UserController::class, 'getRoles'])->name('api.users.roles');
@@ -87,10 +88,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Rutas
     Route::apiResource('routes', RouteController::class)->names([
-        'index' => 'api.routes.index',
-        'store' => 'api.routes.store',
-        'show' => 'api.routes.show',
-        'update' => 'api.routes.update',
+        'index'   => 'api.routes.index',
+        'store'   => 'api.routes.store',
+        'show'    => 'api.routes.show',
+        'update'  => 'api.routes.update',
         'destroy' => 'api.routes.destroy',
     ]);
     Route::get('/routes/cobrador/{cobrador}', [RouteController::class, 'getByCobrador'])->name('api.routes.by-cobrador');
@@ -98,20 +99,20 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Tasas de interés
     Route::apiResource('interest-rates', InterestRateController::class)->names([
-        'index' => 'api.interest-rates.index',
-        'store' => 'api.interest-rates.store',
-        'show' => 'api.interest-rates.show',
-        'update' => 'api.interest-rates.update',
+        'index'   => 'api.interest-rates.index',
+        'store'   => 'api.interest-rates.store',
+        'show'    => 'api.interest-rates.show',
+        'update'  => 'api.interest-rates.update',
         'destroy' => 'api.interest-rates.destroy',
     ]);
     Route::get('/interest-rates/active', [InterestRateController::class, 'active'])->name('api.interest-rates.active');
 
     // Créditos - Rutas principales
     Route::apiResource('credits', CreditController::class)->names([
-        'index' => 'api.credits.index',
-        'store' => 'api.credits.store',
-        'show' => 'api.credits.show',
-        'update' => 'api.credits.update',
+        'index'   => 'api.credits.index',
+        'store'   => 'api.credits.store',
+        'show'    => 'api.credits.show',
+        'update'  => 'api.credits.update',
         'destroy' => 'api.credits.destroy',
     ]);
     Route::get('/credits/{credit}/remaining-installments', [CreditController::class, 'getRemainingInstallments'])->name('api.credits.remaining-installments');
@@ -159,10 +160,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Pagos - Rutas principales
     Route::apiResource('payments', PaymentController::class)->names([
-        'index' => 'api.payments.index',
-        'store' => 'api.payments.store',
-        'show' => 'api.payments.show',
-        'update' => 'api.payments.update',
+        'index'   => 'api.payments.index',
+        'store'   => 'api.payments.store',
+        'show'    => 'api.payments.show',
+        'update'  => 'api.payments.update',
         'destroy' => 'api.payments.destroy',
     ]);
     Route::get('/payments/credit/{credit}', [PaymentController::class, 'getByCredit'])->name('api.payments.by-credit');
@@ -173,10 +174,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Balances de efectivo
     Route::apiResource('cash-balances', CashBalanceController::class)->names([
-        'index' => 'api.cash-balances.index',
-        'store' => 'api.cash-balances.store',
-        'show' => 'api.cash-balances.show',
-        'update' => 'api.cash-balances.update',
+        'index'   => 'api.cash-balances.index',
+        'store'   => 'api.cash-balances.store',
+        'show'    => 'api.cash-balances.show',
+        'update'  => 'api.cash-balances.update',
         'destroy' => 'api.cash-balances.destroy',
     ]);
     Route::get('/cash-balances/cobrador/{cobrador}', [CashBalanceController::class, 'getByCobrador'])->name('api.cash-balances.by-cobrador');
@@ -186,10 +187,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Notificaciones
     Route::apiResource('notifications', NotificationController::class)->names([
-        'index' => 'api.notifications.index',
-        'store' => 'api.notifications.store',
-        'show' => 'api.notifications.show',
-        'update' => 'api.notifications.update',
+        'index'   => 'api.notifications.index',
+        'store'   => 'api.notifications.store',
+        'show'    => 'api.notifications.show',
+        'update'  => 'api.notifications.update',
         'destroy' => 'api.notifications.destroy',
     ]);
     Route::patch('/notifications/{notification}/mark-read', [NotificationController::class, 'markAsRead'])->name('api.notifications.mark-read');
@@ -199,6 +200,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Mapa y visualización
     Route::get('/map/clients', [MapController::class, 'getClientsWithLocations'])->name('api.map.clients');
+    Route::get('/map/coordinates', [MapController::class, 'getClientCoordinates'])->name('api.map.coordinates');
     Route::get('/map/stats', [MapController::class, 'getMapStats'])->name('api.map.stats');
     Route::get('/map/clients-by-area', [MapController::class, 'getClientsByArea'])->name('api.map.clients-by-area');
     Route::get('/map/cobrador-routes', [MapController::class, 'getCobradorRoutes'])->name('api.map.cobrador-routes');
@@ -209,6 +211,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard/recent-activity', [DashboardController::class, 'getRecentActivity'])->name('api.dashboard.recent-activity');
     Route::get('/dashboard/alerts', [DashboardController::class, 'getAlerts'])->name('api.dashboard.alerts');
     Route::get('/dashboard/performance-metrics', [DashboardController::class, 'getPerformanceMetrics'])->name('api.dashboard.performance-metrics');
+
+    // Reportes
+    Route::get('/reports/types', [ReportController::class, 'getReportTypes'])->name('api.reports.types');
+    Route::get('/reports/payments', [ReportController::class, 'paymentsReport'])->name('api.reports.payments');
+    Route::get('/reports/credits', [ReportController::class, 'creditsReport'])->name('api.reports.credits');
+    Route::get('/reports/users', [ReportController::class, 'usersReport'])->name('api.reports.users');
+    Route::get('/reports/balances', [ReportController::class, 'balancesReport'])->name('api.reports.balances');
 
     // WebSocket Notifications eliminadas
 });

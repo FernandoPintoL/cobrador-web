@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Controllers\Api;
 
 use App\Models\Credit;
@@ -15,7 +14,7 @@ class PaymentController extends BaseController
      */
     public function index(Request $request)
     {
-        $query = Payment::with(['cobrador','credit.client', 'receivedBy']);
+        $query = Payment::with(['cobrador', 'credit.client', 'receivedBy']);
 
         $currentUser = Auth::user();
 
@@ -24,7 +23,7 @@ class PaymentController extends BaseController
             $query->where('received_by', $currentUser->id);
         } elseif ($currentUser && $currentUser->hasRole('manager')) {
             // Si es manager, mostrar pagos de sus cobradores
-            $cobradorIds = User::role('cobrador')->where('assigned_manager_id',   $currentUser->id)->pluck('id');
+            $cobradorIds = User::role('cobrador')->where('assigned_manager_id', $currentUser->id)->pluck('id');
             $query->whereIn('received_by', $cobradorIds);
         }
 
@@ -62,16 +61,16 @@ class PaymentController extends BaseController
     public function store(Request $request)
     {
         $request->validate([
-            'credit_id' => 'required|exists:credits,id',
-            'amount' => 'required|numeric|min:0.01',
+            'credit_id'      => 'required|exists:credits,id',
+            'amount'         => 'required|numeric|min:0.01',
             'payment_method' => 'required|in:cash,transfer,check,other',
-            'payment_date' => 'required|date',
-            'latitude' => 'nullable|numeric|between:-90,90',
-            'longitude' => 'nullable|numeric|between:-180,180',
+            'payment_date'   => 'nullable|date',
+            'latitude'       => 'nullable|numeric|between:-90,90',
+            'longitude'      => 'nullable|numeric|between:-180,180',
         ]);
 
         $currentUser = Auth::user();
-        $credit = Credit::with(['client'])->findOrFail($request->credit_id);
+        $credit      = Credit::with(['client'])->findOrFail($request->credit_id);
 
         // Verificar permisos
         if ($currentUser->hasRole('cobrador')) {
@@ -91,37 +90,66 @@ class PaymentController extends BaseController
             return $this->sendError('Monto inválido', 'El monto del pago no puede exceder el balance pendiente del crédito', 400);
         }
 
-        $payment = Payment::create([
-            'credit_id' => $request->credit_id,
-            'client_id' => $credit->client->id,
-            'cobrador_id' => $credit->createdBy->id,
-            'amount' => $request->amount,
-            'payment_method' => $request->payment_method,
-            'payment_date' => $request->payment_date,
-            'received_by' => $currentUser->id,
-            'installment_number' => $request->installment_number,
-            'latitude' => $request->latitude,
-            'longitude' => $request->longitude,
-            'status' => 'completed',
-        ]);
+        // Calcular número de cuotas a cubrir
+        $dailyInstallment = $credit->installment_amount;
+        if ($dailyInstallment <= 0) {
+            return $this->sendError('Error de configuración', 'El monto de cuota diaria no está configurado correctamente', 400);
+        }
+
+        $numInstallments = floor($request->amount / $dailyInstallment);
+        $remainingAmount = $request->amount % $dailyInstallment;
+
+        // Si no cubre al menos una cuota completa, crear un pago único por el monto restante
+        if ($numInstallments == 0) {
+            $numInstallments  = 1;
+            $remainingAmount  = $request->amount;
+            $dailyInstallment = $remainingAmount;
+        }
+
+        $payments  = [];
+        $totalPaid = 0;
+
+        // Crear pagos para cada cuota
+        for ($i = 0; $i < $numInstallments; $i++) {
+            $installmentAmount = ($i == $numInstallments - 1 && $remainingAmount > 0) ? $remainingAmount : $dailyInstallment;
+
+            $payment = Payment::create([
+                'credit_id'          => $request->credit_id,
+                'client_id'          => $credit->client->id,
+                'cobrador_id'        => $credit->createdBy->id,
+                'amount'             => $installmentAmount,
+                'payment_method'     => $request->payment_method,
+                'payment_date'       => $request->payment_date ?: now()->toDateString(),
+                'received_by'        => $currentUser->id,
+                'installment_number' => $request->installment_number + $i,
+                'latitude'           => $request->latitude,
+                'longitude'          => $request->longitude,
+                'status'             => 'completed',
+            ]);
+
+            $payments[] = $payment;
+            $totalPaid += $installmentAmount;
+        }
 
         // Actualizar el balance del crédito
-        $credit->balance -= $request->amount;
+        $credit->balance -= $totalPaid;
 
         // Si el balance llega a cero, marcar crédito como completado
         if ($credit->balance <= 0) {
-            $credit->status = 'completed';
+            $credit->status       = 'completed';
             $credit->completed_at = now();
         }
 
         $credit->save();
 
-        $payment->load(['credit.client', 'receivedBy']);
+        // Cargar relaciones para el primer pago (o el último)
+        $firstPayment = $payments[0];
+        $firstPayment->load(['credit.client', 'receivedBy']);
 
         // Disparar evento de pago recibido
-        //        event(new PaymentReceived($payment));
+        //        event(new PaymentReceived($firstPayment));
 
-        return $this->sendResponse($payment, 'Pago registrado exitosamente');
+        return $this->sendResponse($firstPayment, 'Pago registrado exitosamente');
     }
 
     /**
@@ -149,10 +177,10 @@ class PaymentController extends BaseController
     public function update(Request $request, Payment $payment)
     {
         $request->validate([
-            'amount' => 'required|numeric|min:0.01',
+            'amount'         => 'required|numeric|min:0.01',
             'payment_method' => 'required|in:cash,transfer,check,other',
-            'payment_date' => 'required|date',
-            'notes' => 'nullable|string|max:1000',
+            'payment_date'   => 'nullable|date',
+            'notes'          => 'nullable|string|max:1000',
         ]);
 
         $currentUser = Auth::user();
@@ -166,13 +194,13 @@ class PaymentController extends BaseController
 
         // Guardar el monto anterior para ajustar el balance del crédito
         $oldAmount = $payment->amount;
-        $credit = $payment->credit;
+        $credit    = $payment->credit;
 
         $payment->update([
-            'amount' => $request->amount,
+            'amount'         => $request->amount,
             'payment_method' => $request->payment_method,
-            'payment_date' => $request->payment_date,
-            'notes' => $request->notes,
+            'payment_date'   => $request->payment_date ?: now()->toDateString(),
+            'notes'          => $request->notes,
         ]);
 
         // Ajustar el balance del crédito
@@ -181,10 +209,10 @@ class PaymentController extends BaseController
 
         // Verificar el estado del crédito
         if ($credit->balance <= 0 && $credit->status !== 'completed') {
-            $credit->status = 'completed';
+            $credit->status       = 'completed';
             $credit->completed_at = now();
         } elseif ($credit->balance > 0 && $credit->status === 'completed') {
-            $credit->status = 'active';
+            $credit->status       = 'active';
             $credit->completed_at = null;
         }
 
@@ -213,7 +241,7 @@ class PaymentController extends BaseController
 
         // Ajustar el estado del crédito si era completado
         if ($credit->status === 'completed') {
-            $credit->status = 'active';
+            $credit->status       = 'active';
             $credit->completed_at = null;
         }
 
@@ -315,9 +343,9 @@ class PaymentController extends BaseController
         }
 
         $stats = [
-            'total_payments' => $query->count(),
-            'total_amount' => $query->sum('amount'),
-            'average_payment' => $query->avg('amount'),
+            'total_payments'     => $query->count(),
+            'total_amount'       => $query->sum('amount'),
+            'average_payment'    => $query->avg('amount'),
             'payments_by_method' => Payment::where('received_by', $cobrador->id)
                 ->when($request->date_from, function ($q, $date) {
                     $q->whereDate('payment_date', '>=', $date);
@@ -339,7 +367,7 @@ class PaymentController extends BaseController
     public function getRecent(Request $request)
     {
         $currentUser = Auth::user();
-        $limit = $request->get('limit', 10);
+        $limit       = $request->get('limit', 10);
 
         $query = Payment::with(['credit.client', 'receivedBy']);
 
@@ -365,7 +393,7 @@ class PaymentController extends BaseController
     public function getTodaySummary()
     {
         $currentUser = Auth::user();
-        $today = now()->toDateString();
+        $today       = now()->toDateString();
 
         $query = Payment::whereDate('payment_date', $today);
 
@@ -378,8 +406,8 @@ class PaymentController extends BaseController
         }
 
         $summary = [
-            'total_payments' => $query->count(),
-            'total_amount' => $query->sum('amount'),
+            'total_payments'     => $query->count(),
+            'total_amount'       => $query->sum('amount'),
             'payments_by_method' => Payment::whereDate('payment_date', $today)
                 ->when($currentUser->hasRole('cobrador'), function ($q) use ($currentUser) {
                     $q->where('received_by', $currentUser->id);

@@ -122,7 +122,35 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('notifications/{notification}/edit', function ($notification) {
         return Inertia::render('notifications/edit', ['notification' => $notification]);
     })->name('notifications.edit');*/
+
+    // Rutas de Reportes
+    Route::get('reports', function () {
+        $reportTypes = [
+            'payments' => [
+                'name'        => 'Reporte de Pagos',
+                'description' => 'Historial de pagos con filtros por fecha y cobrador',
+                'filters'     => ['start_date', 'end_date', 'cobrador_id'],
+            ],
+            'credits'  => [
+                'name'        => 'Reporte de Créditos',
+                'description' => 'Lista de créditos con estado y asignaciones',
+                'filters'     => ['status', 'cobrador_id', 'client_id'],
+            ],
+            'users'    => [
+                'name'        => 'Reporte de Usuarios',
+                'description' => 'Lista de usuarios con roles y categorías',
+                'filters'     => ['role', 'client_category'],
+            ],
+            'balances' => [
+                'name'        => 'Reporte de Balances',
+                'description' => 'Balances de efectivo por cobrador',
+                'filters'     => ['start_date', 'end_date', 'cobrador_id'],
+            ],
+        ];
+
+        return Inertia::render('reports/index', ['reportTypes' => $reportTypes]);
+    })->name('reports.index');
 });
 
-require __DIR__.'/settings.php';
-require __DIR__.'/auth.php';
+require __DIR__ . '/settings.php';
+require __DIR__ . '/auth.php';

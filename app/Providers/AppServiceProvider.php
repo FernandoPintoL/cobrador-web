@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Providers;
 
 use App\Models\User;
@@ -30,9 +29,9 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('viewPulse', function (User $user) {
             return $user->isAdmin();
         });
-        Pulse::user(fn ($user) => [
-            'name' => $user->name,
-            'extra' => $user->email,
+        Pulse::user(fn($user) => [
+            'name'   => $user->name,
+            'extra'  => $user->email,
             'avatar' => $user->avatar_url,
         ]);
     }
