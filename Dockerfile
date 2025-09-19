@@ -16,7 +16,8 @@ RUN apk add --no-cache \
     libxml2-dev \
     zip \
     unzip \
-    sqlite-dev
+    sqlite-dev \
+    postgresql-dev
 
 # Create nginx directories
 RUN mkdir -p /var/log/nginx && mkdir -p /var/cache/nginx
@@ -28,8 +29,7 @@ COPY nginx.conf /etc/nginx/http.d/default.conf
 COPY supervisord.conf /etc/supervisor/supervisord.conf
 
 # Install PHP extensions
-RUN docker-php-ext-configure gd --with-freetype=/usr/include/ --with-jpeg=/usr/include/ \
-    && docker-php-ext-install pdo pdo_mysql mbstring exif pcntl bcmath gd soap zip
+RUN docker-php-ext-install pdo pdo_pgsql mbstring exif pcntl bcmath gd soap zip
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
