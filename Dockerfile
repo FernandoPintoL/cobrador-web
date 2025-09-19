@@ -21,6 +21,12 @@ RUN apk add --no-cache \
 # Create nginx directories
 RUN mkdir -p /var/log/nginx && mkdir -p /var/cache/nginx
 
+# Copy nginx config
+COPY nginx.conf /etc/nginx/http.d/default.conf
+
+# Copy supervisor config
+COPY supervisord.conf /etc/supervisor/supervisord.conf
+
 # Install PHP extensions
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install pdo pdo_mysql mbstring exif pcntl bcmath gd soap zip
@@ -61,5 +67,5 @@ RUN php artisan config:cache && \
 # Expose port
 EXPOSE 80
 
-# Start supervisor (assuming you have supervisord.conf)
+# Start supervisor
 CMD ["supervisord", "-c", "/etc/supervisor/supervisord.conf"]
