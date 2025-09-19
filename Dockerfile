@@ -1,5 +1,5 @@
-# Use PHP 8.3 to resolve dependency issues
-FROM php:8.3-fpm-alpine
+# Use PHP 8.2 to match Railway's version
+FROM php:8.2-fpm-alpine
 
 # Install system dependencies
 RUN apk add --no-cache \
@@ -34,8 +34,8 @@ WORKDIR /app
 # Copy composer files first for better caching
 COPY composer.json composer.lock ./
 
-# Install PHP dependencies (ignore platform reqs for build)
-RUN composer install --ignore-platform-reqs --no-dev --optimize-autoloader
+# Update PHP dependencies to resolve version conflicts
+RUN composer update --ignore-platform-reqs --no-dev --optimize-autoloader
 
 # Copy package files
 COPY package.json package-lock.json ./
@@ -58,14 +58,8 @@ RUN php artisan config:cache && \
     chmod 777 -R public/ && \
     chmod 777 -R bootstrap/cache
 
-# Copy nginx configuration (assuming you have one)
-# COPY nginx.conf /etc/nginx/nginx.conf
-
-# Copy supervisor configuration
-# COPY supervisord.conf /etc/supervisor/supervisord.conf
-
 # Expose port
 EXPOSE 80
 
-# Start supervisor
+# Start supervisor (assuming you have supervisord.conf)
 CMD ["supervisord", "-c", "/etc/supervisor/supervisord.conf"]
