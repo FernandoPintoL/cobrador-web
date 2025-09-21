@@ -1,8 +1,6 @@
 <?php
-
 namespace App\Http\Controllers\Api;
 
-use App\Events\CreditWaitingListUpdate;
 use App\Http\Controllers\Controller;
 use App\Models\Credit;
 use Carbon\Carbon;
@@ -22,34 +20,34 @@ class CreditWaitingListController extends Controller
             ->get()
             ->map(function ($credit) {
                 return [
-                    'id' => $credit->id,
-                    'client' => [
-                        'id' => $credit->client->id,
-                        'name' => $credit->client->name,
-                        'email' => $credit->client->email,
-                        'phone' => $credit->client->phone,
-                        'address' => $credit->client->address,
-                        'latitude' => $credit->client->latitude,
-                        'longitude' => $credit->client->longitude,
+                    'id'              => $credit->id,
+                    'client'          => [
+                        'id'              => $credit->client->id,
+                        'name'            => $credit->client->name,
+                        'email'           => $credit->client->email,
+                        'phone'           => $credit->client->phone,
+                        'address'         => $credit->client->address,
+                        'latitude'        => $credit->client->latitude,
+                        'longitude'       => $credit->client->longitude,
                         'client_category' => $credit->client->client_category,
                     ],
-                    'created_by' => [
-                        'id' => $credit->createdBy->id,
+                    'created_by'      => [
+                        'id'   => $credit->createdBy->id,
                         'name' => $credit->createdBy->name,
                     ],
-                    'amount' => $credit->amount,
-                    'total_amount' => $credit->total_amount,
-                    'interest_rate' => $credit->interest_rate,
-                    'frequency' => $credit->frequency,
-                    'created_at' => $credit->created_at,
+                    'amount'          => $credit->amount,
+                    'total_amount'    => $credit->total_amount,
+                    'interest_rate'   => $credit->interest_rate,
+                    'frequency'       => $credit->frequency,
+                    'created_at'      => $credit->created_at,
                     'delivery_status' => $credit->getDeliveryStatusInfo(),
                 ];
             });
 
         return response()->json([
             'success' => true,
-            'data' => $credits,
-            'count' => $credits->count(),
+            'data'    => $credits,
+            'count'   => $credits->count(),
         ]);
     }
 
@@ -62,34 +60,34 @@ class CreditWaitingListController extends Controller
             ->get()
             ->map(function ($credit) {
                 return [
-                    'id' => $credit->id,
-                    'client' => [
-                        'id' => $credit->client->id,
-                        'name' => $credit->client->name,
+                    'id'                      => $credit->id,
+                    'client'                  => [
+                        'id'    => $credit->client->id,
+                        'name'  => $credit->client->name,
                         'email' => $credit->client->email,
                         'phone' => $credit->client->phone,
                     ],
-                    'created_by' => [
-                        'id' => $credit->createdBy->id,
+                    'created_by'              => [
+                        'id'   => $credit->createdBy->id,
                         'name' => $credit->createdBy->name,
                     ],
-                    'approved_by' => $credit->approvedBy ? [
-                        'id' => $credit->approvedBy->id,
+                    'approved_by'             => $credit->approvedBy ? [
+                        'id'   => $credit->approvedBy->id,
                         'name' => $credit->approvedBy->name,
                     ] : null,
-                    'amount' => $credit->amount,
-                    'total_amount' => $credit->total_amount,
-                    'interest_rate' => $credit->interest_rate,
-                    'frequency' => $credit->frequency,
+                    'amount'                  => $credit->amount,
+                    'total_amount'            => $credit->total_amount,
+                    'interest_rate'           => $credit->interest_rate,
+                    'frequency'               => $credit->frequency,
                     'scheduled_delivery_date' => $credit->scheduled_delivery_date,
-                    'delivery_status' => $credit->getDeliveryStatusInfo(),
+                    'delivery_status'         => $credit->getDeliveryStatusInfo(),
                 ];
             });
 
         return response()->json([
             'success' => true,
-            'data' => $credits,
-            'count' => $credits->count(),
+            'data'    => $credits,
+            'count'   => $credits->count(),
         ]);
     }
 
@@ -101,24 +99,24 @@ class CreditWaitingListController extends Controller
         $credits = Credit::readyForDeliveryToday()
             ->map(function ($credit) {
                 return [
-                    'id' => $credit->id,
-                    'client' => [
-                        'id' => $credit->client->id,
-                        'name' => $credit->client->name,
+                    'id'                      => $credit->id,
+                    'client'                  => [
+                        'id'    => $credit->client->id,
+                        'name'  => $credit->client->name,
                         'email' => $credit->client->email,
                         'phone' => $credit->client->phone,
                     ],
-                    'amount' => $credit->amount,
-                    'total_amount' => $credit->total_amount,
+                    'amount'                  => $credit->amount,
+                    'total_amount'            => $credit->total_amount,
                     'scheduled_delivery_date' => $credit->scheduled_delivery_date,
-                    'delivery_status' => $credit->getDeliveryStatusInfo(),
+                    'delivery_status'         => $credit->getDeliveryStatusInfo(),
                 ];
             });
 
         return response()->json([
             'success' => true,
-            'data' => $credits,
-            'count' => $credits->count(),
+            'data'    => $credits,
+            'count'   => $credits->count(),
         ]);
     }
 
@@ -130,25 +128,25 @@ class CreditWaitingListController extends Controller
         $credits = Credit::overdueForDelivery()
             ->map(function ($credit) {
                 return [
-                    'id' => $credit->id,
-                    'client' => [
-                        'id' => $credit->client->id,
-                        'name' => $credit->client->name,
+                    'id'                      => $credit->id,
+                    'client'                  => [
+                        'id'    => $credit->client->id,
+                        'name'  => $credit->client->name,
                         'email' => $credit->client->email,
                         'phone' => $credit->client->phone,
                     ],
-                    'amount' => $credit->amount,
-                    'total_amount' => $credit->total_amount,
+                    'amount'                  => $credit->amount,
+                    'total_amount'            => $credit->total_amount,
                     'scheduled_delivery_date' => $credit->scheduled_delivery_date,
-                    'days_overdue' => $credit->getDaysOverdueForDelivery(),
-                    'delivery_status' => $credit->getDeliveryStatusInfo(),
+                    'days_overdue'            => $credit->getDaysOverdueForDelivery(),
+                    'delivery_status'         => $credit->getDeliveryStatusInfo(),
                 ];
             });
 
         return response()->json([
             'success' => true,
-            'data' => $credits,
-            'count' => $credits->count(),
+            'data'    => $credits,
+            'count'   => $credits->count(),
         ]);
     }
 
@@ -167,14 +165,14 @@ class CreditWaitingListController extends Controller
 
         $request->validate([
             'scheduled_delivery_date' => 'sometimes|nullable|date|after_or_equal:now',
-            'immediate_delivery' => 'sometimes|boolean',
-            'notes' => 'nullable|string|max:1000',
+            'immediate_delivery'      => 'sometimes|boolean',
+            'notes'                   => 'nullable|string|max:1000',
         ]);
 
         DB::beginTransaction();
         try {
             // Determinar fecha programada o inmediata
-            $immediate = (bool) $request->boolean('immediate_delivery');
+            $immediate     = (bool) $request->boolean('immediate_delivery');
             $scheduledDate = null;
             if ($request->filled('scheduled_delivery_date')) {
                 $scheduledDate = Carbon::parse($request->scheduled_delivery_date);
@@ -203,18 +201,18 @@ class CreditWaitingListController extends Controller
             }
 
             // Ajustar cronograma: start_date = día siguiente de la aprobación
-            $approvedAt = $credit->approved_at ?? now();
-            $startDate = Carbon::parse($approvedAt)->addDay()->toDateString();
-            $credit->start_date = $startDate;
+            $approvedAt         = $credit->approved_at ?? now();
+            $startDate          = Carbon::parse($approvedAt)->addDay();
+            $credit->start_date = $startDate->toDateString();
             // Asegurar que end_date sea posterior a start_date; si no, mover +30 días (fallback seguro)
-            if (! $credit->end_date || Carbon::parse($credit->end_date)->lte(Carbon::parse($startDate))) {
-                $credit->end_date = Carbon::parse($startDate)->addDays(30)->toDateString();
+            if (! $credit->end_date || Carbon::parse($credit->end_date)->lte($startDate)) {
+                $credit->end_date = $startDate->copy()->addDays(30)->toDateString();
             }
             $credit->save();
 
             // Si la fecha es ahora o en el pasado (o immediate=true), entregar de inmediato
             $shouldDeliverNow = $immediate || ($scheduledDate && $scheduledDate <= now());
-            $deliveredNow = false;
+            $deliveredNow     = false;
             if ($shouldDeliverNow) {
                 $deliveredNow = $credit->deliverToClient(Auth::id(), $request->notes);
                 if (! $deliveredNow) {
@@ -230,18 +228,18 @@ class CreditWaitingListController extends Controller
             DB::commit();
 
             // Disparar eventos de actualización
-            event(new CreditWaitingListUpdate($credit->fresh(), 'approved', Auth::user()));
+            /* event(new CreditWaitingListUpdate($credit->fresh(), 'approved', Auth::user()));
             if ($shouldDeliverNow && $deliveredNow) {
                 event(new CreditWaitingListUpdate($credit->fresh(), 'delivered', Auth::user()));
-            }
+            } */
 
             return response()->json([
                 'success' => true,
                 'message' => $shouldDeliverNow && $deliveredNow
                     ? 'Crédito aprobado y entregado al cliente exitosamente'
                     : 'Crédito aprobado para entrega exitosamente',
-                'data' => [
-                    'credit' => $credit->fresh(),
+                'data'    => [
+                    'credit'          => $credit->fresh(),
                     'delivery_status' => $credit->fresh()->getDeliveryStatusInfo(),
                 ],
             ]);
@@ -251,7 +249,7 @@ class CreditWaitingListController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al aprobar el crédito: '.$e->getMessage(),
+                'message' => 'Error al aprobar el crédito: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -289,13 +287,13 @@ class CreditWaitingListController extends Controller
             DB::commit();
 
             // Disparar evento de actualización
-            event(new CreditWaitingListUpdate($credit->fresh(), 'rejected', Auth::user()));
+            // event(new CreditWaitingListUpdate($credit->fresh(), 'rejected', Auth::user()));
 
             return response()->json([
                 'success' => true,
                 'message' => 'Crédito rechazado exitosamente',
-                'data' => [
-                    'credit' => $credit->fresh(),
+                'data'    => [
+                    'credit'          => $credit->fresh(),
                     'delivery_status' => $credit->fresh()->getDeliveryStatusInfo(),
                 ],
             ]);
@@ -305,7 +303,7 @@ class CreditWaitingListController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al rechazar el crédito: '.$e->getMessage(),
+                'message' => 'Error al rechazar el crédito: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -348,8 +346,8 @@ class CreditWaitingListController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Crédito entregado al cliente exitosamente',
-                'data' => [
-                    'credit' => $credit->fresh(),
+                'data'    => [
+                    'credit'          => $credit->fresh(),
                     'delivery_status' => $credit->fresh()->getDeliveryStatusInfo(),
                 ],
             ]);
@@ -359,7 +357,7 @@ class CreditWaitingListController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al entregar el crédito: '.$e->getMessage(),
+                'message' => 'Error al entregar el crédito: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -379,7 +377,7 @@ class CreditWaitingListController extends Controller
 
         $request->validate([
             'new_delivery_date' => 'required|date|after:now',
-            'reason' => 'nullable|string|max:500',
+            'reason'            => 'nullable|string|max:500',
         ]);
 
         DB::beginTransaction();
@@ -408,8 +406,8 @@ class CreditWaitingListController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Fecha de entrega reprogramada exitosamente',
-                'data' => [
-                    'credit' => $credit->fresh(),
+                'data'    => [
+                    'credit'          => $credit->fresh(),
                     'delivery_status' => $credit->fresh()->getDeliveryStatusInfo(),
                 ],
             ]);
@@ -419,7 +417,7 @@ class CreditWaitingListController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al reprogramar la entrega: '.$e->getMessage(),
+                'message' => 'Error al reprogramar la entrega: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -431,8 +429,8 @@ class CreditWaitingListController extends Controller
     {
         return response()->json([
             'success' => true,
-            'data' => [
-                'credit_id' => $credit->id,
+            'data'    => [
+                'credit_id'       => $credit->id,
                 'delivery_status' => $credit->getDeliveryStatusInfo(),
             ],
         ]);
@@ -445,16 +443,16 @@ class CreditWaitingListController extends Controller
     {
         $pendingApproval = Credit::pendingApproval()->count();
         $waitingDelivery = Credit::waitingForDelivery()->count();
-        $readyToday = Credit::readyForDeliveryToday()->count();
-        $overdue = Credit::overdueForDelivery()->count();
+        $readyToday      = Credit::readyForDeliveryToday()->count();
+        $overdue         = Credit::overdueForDelivery()->count();
 
         return response()->json([
             'success' => true,
-            'data' => [
-                'pending_approval' => $pendingApproval,
-                'waiting_delivery' => $waitingDelivery,
-                'ready_today' => $readyToday,
-                'overdue_delivery' => $overdue,
+            'data'    => [
+                'pending_approval'      => $pendingApproval,
+                'waiting_delivery'      => $waitingDelivery,
+                'ready_today'           => $readyToday,
+                'overdue_delivery'      => $overdue,
                 'total_in_waiting_list' => $pendingApproval + $waitingDelivery,
             ],
         ]);

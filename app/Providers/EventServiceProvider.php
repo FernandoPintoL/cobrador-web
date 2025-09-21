@@ -1,13 +1,6 @@
 <?php
-
 namespace App\Providers;
 
-use App\Events\CreditRequiresAttention;
-use App\Events\CreditWaitingListUpdate;
-use App\Events\PaymentReceived;
-use App\Listeners\SendCreditAttentionNotification;
-use App\Listeners\SendCreditWaitingListNotification;
-use App\Listeners\SendPaymentReceivedNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
 
 class EventServiceProvider extends ServiceProvider
@@ -17,6 +10,10 @@ class EventServiceProvider extends ServiceProvider
      *
      * @var array<class-string, array<int, class-string|string>>
      */
+    // NOTE: Event listeners for broadcasting / websocket have been
+    // intentionally disabled. If you later re-enable event-based
+    // notifications, restore the mappings below.
+    /*
     protected $listen = [
         CreditRequiresAttention::class => [
             SendCreditAttentionNotification::class,
@@ -28,4 +25,5 @@ class EventServiceProvider extends ServiceProvider
             SendPaymentReceivedNotification::class,
         ],
     ];
+    */
 }

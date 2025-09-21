@@ -1,11 +1,11 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Log;
 
 class Payment extends Model
 {
@@ -28,9 +28,9 @@ class Payment extends Model
 
     protected $casts = [
         'payment_date' => 'datetime',
-        'amount' => 'decimal:2',
-        'latitude' => 'decimal:8',
-        'longitude' => 'decimal:8',
+        'amount'       => 'decimal:2',
+        'latitude'     => 'decimal:8',
+        'longitude'    => 'decimal:8',
     ];
 
     /**
@@ -80,7 +80,7 @@ class Payment extends Model
     {
         if ($this->latitude && $this->longitude) {
             return [
-                'latitude' => (float) $this->latitude,
+                'latitude'  => (float) $this->latitude,
                 'longitude' => (float) $this->longitude,
             ];
         }
@@ -94,7 +94,7 @@ class Payment extends Model
     public function setLocationAttribute($value): void
     {
         if (is_array($value) && isset($value['latitude']) && isset($value['longitude'])) {
-            $this->attributes['latitude'] = $value['latitude'];
+            $this->attributes['latitude']  = $value['latitude'];
             $this->attributes['longitude'] = $value['longitude'];
         }
     }
@@ -130,12 +130,12 @@ class Payment extends Model
                 // Disparar evento de pago recibido
                 $cobrador = $payment->cobrador;
                 if ($cobrador) {
-                    event(new \App\Events\PaymentReceived($payment, $cobrador));
+                    // event(new \App\Events\PaymentReceived($payment, $cobrador));
                 }
             } catch (\Exception $e) {
-                \Log::error('Error processing payment creation events', [
+                Log::error('Error processing payment creation events', [
                     'payment_id' => $payment->id,
-                    'error' => $e->getMessage(),
+                    'error'      => $e->getMessage(),
                 ]);
             }
         });
@@ -147,8 +147,8 @@ class Payment extends Model
                 if ($payment->wasChanged('amount')) {
                     $credit = $payment->credit;
                     if ($credit) {
-                        $oldAmount = $payment->getOriginal('amount');
-                        $newAmount = $payment->amount;
+                        $oldAmount  = $payment->getOriginal('amount');
+                        $newAmount  = $payment->amount;
                         $difference = $newAmount - $oldAmount;
 
                         $credit->balance = $credit->balance - $difference;
@@ -161,9 +161,9 @@ class Payment extends Model
                     $payment->client->recalculateCategoryFromOverdues();
                 }
             } catch (\Exception $e) {
-                \Log::error('Error processing payment update events', [
+                Log::error('Error processing payment update events', [
                     'payment_id' => $payment->id,
-                    'error' => $e->getMessage(),
+                    'error'      => $e->getMessage(),
                 ]);
             }
         });

@@ -131,25 +131,22 @@ class PaymentController extends BaseController
             $totalPaid += $installmentAmount;
         }
 
-        // Actualizar el balance del crédito
-        $credit->balance -= $totalPaid;
+        // NOTE: la actualización del balance del crédito y recálculo de categoría
+        // se realiza en el evento `created` del modelo `Payment`.
+        // Para evitar descontar doblemente, no modificamos el balance aquí.
 
-        // Si el balance llega a cero, marcar crédito como completado
-        if ($credit->balance <= 0) {
-            $credit->status       = 'completed';
-            $credit->completed_at = now();
+        // Cargar relaciones para todos los pagos creados
+        foreach ($payments as $p) {
+            $p->load(['credit.client', 'receivedBy']);
         }
 
-        $credit->save();
+        // Disparar evento de pago recibido para el primer pago si es necesario
+        //        event(new PaymentReceived($payments[0]));
 
-        // Cargar relaciones para el primer pago (o el último)
-        $firstPayment = $payments[0];
-        $firstPayment->load(['credit.client', 'receivedBy']);
-
-        // Disparar evento de pago recibido
-        //        event(new PaymentReceived($firstPayment));
-
-        return $this->sendResponse($firstPayment, 'Pago registrado exitosamente');
+        return $this->sendResponse([
+            'payments'   => $payments,
+            'total_paid' => $totalPaid,
+        ], 'Pagos registrados exitosamente');
     }
 
     /**
