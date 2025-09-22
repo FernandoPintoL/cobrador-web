@@ -12,6 +12,7 @@ RUN apk add --no-cache \
     libzip-dev \
     zlib-dev \
     postgresql-dev \
+    oniguruma-dev \
     $PHPIZE_DEPS
 
 # Install and enable PHP extensions required by dependencies
