@@ -11,10 +11,11 @@ RUN apk add --no-cache \
     supervisor \
     libzip-dev \
     zlib-dev \
+    postgresql-dev \
     $PHPIZE_DEPS
 
 # Install and enable PHP extensions required by dependencies
-RUN docker-php-ext-install zip
+RUN docker-php-ext-install zip pdo_mysql mbstring pdo_pgsql
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -46,13 +47,10 @@ RUN mkdir -p /run/nginx /var/log/nginx /etc/nginx/http.d \
 # Build assets
 RUN npm run build
 
-# Run Laravel optimizations
-RUN php artisan package:discover --ansi && \
-    php artisan config:cache && \
-    php artisan route:cache && \
-    php artisan view:cache && \
-    chmod 777 -R storage/ && \
-    chmod 777 -R public/
+# Clear any prebuilt caches (env will be provided at runtime on Railway)
+RUN php artisan package:discover --ansi || true && \
+    php artisan optimize:clear || true && \
+    chmod -R 777 storage/ public/ bootstrap/cache
 
 # Expose HTTP port (Railway defaults to 8080)
 EXPOSE 8080
