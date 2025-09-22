@@ -18,28 +18,11 @@ class CreditController extends BaseController
     {
         $query = Credit::with(['client', 'payments', 'createdBy']);
 
-        // Computed columns for filtering and response
-        // Build Postgres expressions/subqueries we will use both for select and filtering
+        // Computed columns for response (simplified: only totals not related to installment counts)
         $totalPaidSub = "(SELECT COALESCE(SUM(amount),0) FROM payments WHERE payments.credit_id = credits.id AND status = 'completed')";
-        $completedCountSub = "(SELECT COUNT(*) FROM payments WHERE payments.credit_id = credits.id AND status = 'completed')";
-        $expectedExpr = "CASE
-                WHEN CURRENT_DATE < start_date THEN 0
-                WHEN frequency = 'daily' THEN (CURRENT_DATE - start_date) + 1
-                WHEN frequency = 'weekly' THEN FLOOR(((CURRENT_DATE - start_date)) / 7.0)::int + 1
-                WHEN frequency = 'biweekly' THEN FLOOR(((CURRENT_DATE - start_date)) / 14.0)::int + 1
-                WHEN frequency = 'monthly' THEN ((EXTRACT(YEAR FROM AGE(CURRENT_DATE, start_date)) * 12) + EXTRACT(MONTH FROM AGE(CURRENT_DATE, start_date)))::int + 1
-                ELSE 0 END";
-        $pendingExpr = "GREATEST(($expectedExpr) - ($completedCountSub), 0)";
-        $isOverdueExpr = "CASE WHEN ($completedCountSub) < ($expectedExpr) THEN 1 ELSE 0 END";
-        $overdueAmountExpr = "CASE WHEN ($completedCountSub) < ($expectedExpr) THEN (($pendingExpr) * installment_amount) ELSE 0 END";
 
         $query->select('credits.*')
-            ->selectRaw("$totalPaidSub as total_paid")
-            ->selectRaw("$completedCountSub as completed_payments_count")
-            ->selectRaw("$expectedExpr as expected_installments")
-            ->selectRaw("$pendingExpr as pending_installments")
-            ->selectRaw("$isOverdueExpr as is_overdue")
-            ->selectRaw("$overdueAmountExpr as overdue_amount");
+            ->selectRaw("$totalPaidSub as total_paid");
 
         // Visibilidad x rol
         $currentUser = Auth::user();
@@ -151,37 +134,23 @@ class CreditController extends BaseController
             })
             ->when($request->total_paid_max, function ($q, $v) use ($totalPaidSub) {
                 $q->whereRaw("$totalPaidSub <= ?", [(float) $v]);
-            })
-            ->when($request->expected_installments_min, function ($q, $v) use ($expectedExpr) {
-                $q->whereRaw("($expectedExpr) >= ?", [(int) $v]);
-            })
-            ->when($request->expected_installments_max, function ($q, $v) use ($expectedExpr) {
-                $q->whereRaw("($expectedExpr) <= ?", [(int) $v]);
-            })
-            ->when($request->pending_installments_min, function ($q, $v) use ($pendingExpr) {
-                $q->whereRaw("($pendingExpr) >= ?", [(int) $v]);
-            })
-            ->when($request->pending_installments_max, function ($q, $v) use ($pendingExpr) {
-                $q->whereRaw("($pendingExpr) <= ?", [(int) $v]);
-            })
-            ->when(! is_null($request->input('is_overdue')), function ($q) use ($request, $isOverdueExpr) {
-                $want = filter_var($request->input('is_overdue'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-                if ($want === true) {
-                    $q->whereRaw("($isOverdueExpr) = 1");
-                } elseif ($want === false) {
-                    $q->whereRaw("($isOverdueExpr) = 0");
-                }
-            })
-            ->when($request->overdue_amount_min, function ($q, $v) use ($overdueAmountExpr) {
-                $q->whereRaw("($overdueAmountExpr) >= ?", [(float) $v]);
-            })
-            ->when($request->overdue_amount_max, function ($q, $v) use ($overdueAmountExpr) {
-                $q->whereRaw("($overdueAmountExpr) <= ?", [(float) $v]);
             });
 
         $perPage = (int) ($request->get('per_page', 15));
         $perPage = $perPage > 0 ? $perPage : 15;
         $credits = $query->paginate($perPage);
+
+        // Enriquecer con métricas de cuotas: solo pagadas y pendientes
+        $credits->getCollection()->transform(function ($credit) {
+            $completedInstallments = (int) $credit->getCompletedInstallmentsCount();
+            $credit->setAttribute('completed_installments_count', $completedInstallments);
+
+            $totalInstallments = (int) ($credit->total_installments ?? $credit->calculateTotalInstallments());
+            $pending = max($totalInstallments - $completedInstallments, 0);
+            $credit->setAttribute('pending_installments', $pending);
+
+            return $credit;
+        });
 
         return $this->sendResponse($credits);
     }
@@ -528,7 +497,7 @@ class CreditController extends BaseController
     /**
      * Helper method to calculate installment amount based on frequency.
      */
-    private function calculateInstallmentAmount($totalAmount, $frequency, $startDate, $endDate)
+    private function calculateInstallmentAmount(float $totalAmount, string $frequency, string $startDate, string $endDate): float
     {
         $start = new \DateTime($startDate);
         $end = new \DateTime($endDate);
@@ -539,10 +508,10 @@ class CreditController extends BaseController
                 $totalPeriods = $interval->days;
                 break;
             case 'weekly':
-                $totalPeriods = floor($interval->days / 7);
+                $totalPeriods = (int) floor($interval->days / 7);
                 break;
             case 'biweekly':
-                $totalPeriods = floor($interval->days / 14);
+                $totalPeriods = (int) floor($interval->days / 14);
                 break;
             case 'monthly':
                 $totalPeriods = ($interval->y * 12) + $interval->m;
@@ -551,7 +520,7 @@ class CreditController extends BaseController
                 $totalPeriods = 1;
         }
 
-        return $totalPeriods > 0 ? round($totalAmount / $totalPeriods, 2) : $totalAmount;
+        return $totalPeriods > 0 ? (float) round($totalAmount / $totalPeriods, 2) : (float) $totalAmount;
     }
 
     /**
@@ -569,6 +538,14 @@ class CreditController extends BaseController
         }
 
         $credit->load(['client', 'payments', 'createdBy']);
+
+        // Métricas: cuotas pagadas y pendientes
+        $completedInstallments = (int) $credit->getCompletedInstallmentsCount();
+        $credit->setAttribute('completed_installments_count', $completedInstallments);
+
+        $totalInstallments = (int) ($credit->total_installments ?? $credit->calculateTotalInstallments());
+        $pending = max($totalInstallments - $completedInstallments, 0);
+        $credit->setAttribute('pending_installments', $pending);
 
         return $this->sendResponse($credit);
     }
@@ -680,6 +657,9 @@ class CreditController extends BaseController
 
         $query = $client->credits()->with(['payments', 'createdBy']);
 
+        // Selección básica; las métricas de cuotas se calculan abajo por cada crédito
+        $query->select('credits.*');
+
         // Filtros
         $query->when($request->status, function ($q, $status) {
             $q->where('status', $status);
@@ -719,6 +699,17 @@ class CreditController extends BaseController
         $perPage = (int) ($request->get('per_page', 50));
         $perPage = $perPage > 0 ? $perPage : 50;
         $credits = $query->paginate($perPage);
+
+        // Enriquecer con métricas reales de cuotas: solo pagadas y pendientes
+        $credits->getCollection()->transform(function ($credit) {
+            $completedInstallments = (int) $credit->getCompletedInstallmentsCount();
+            $credit->setAttribute('completed_installments_count', $completedInstallments);
+            $totalInstallments = (int) ($credit->total_installments ?? $credit->calculateTotalInstallments());
+            $pending = max($totalInstallments - $completedInstallments, 0);
+            $credit->setAttribute('pending_installments', $pending);
+
+            return $credit;
+        });
 
         return $this->sendResponse($credits, "Créditos del cliente {$client->name} obtenidos exitosamente");
     }
@@ -763,6 +754,9 @@ class CreditController extends BaseController
             ->whereHas('client', function ($q) use ($cobrador) {
                 $q->where('assigned_cobrador_id', $cobrador->id);
             });
+
+        // Selección básica; las métricas de cuotas se calculan abajo
+        $query->select('credits.*');
 
         // Filtros adicionales
         $query->when($request->status, function ($query, $status) {
@@ -812,6 +806,17 @@ class CreditController extends BaseController
         $perPage = (int) ($request->get('per_page', 15));
         $perPage = $perPage > 0 ? $perPage : 15;
         $credits = $query->paginate($perPage);
+
+        // Enriquecer con métricas reales de cuotas: solo pagadas y pendientes
+        $credits->getCollection()->transform(function ($credit) {
+            $completedInstallments = (int) $credit->getCompletedInstallmentsCount();
+            $credit->setAttribute('completed_installments_count', $completedInstallments);
+            $totalInstallments = (int) ($credit->total_installments ?? $credit->calculateTotalInstallments());
+            $pending = max($totalInstallments - $completedInstallments, 0);
+            $credit->setAttribute('pending_installments', $pending);
+
+            return $credit;
+        });
 
         return $this->sendResponse($credits, "Créditos del cobrador {$cobrador->name} obtenidos exitosamente");
     }

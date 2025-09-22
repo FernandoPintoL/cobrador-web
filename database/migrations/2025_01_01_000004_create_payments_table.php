@@ -21,9 +21,9 @@ return new class extends Migration
             $table->enum('payment_method', ['cash', 'transfer', 'card', 'mobile_payment']);
             $table->decimal('latitude', 10, 8)->nullable();
             $table->decimal('longitude', 11, 8)->nullable();
-            $table->enum('status', ['pending', 'completed', 'failed', 'cancelled'])->default('pending');
+            $table->enum('status', ['pending', 'completed', 'failed', 'cancelled', 'partial'])->default('pending');
             $table->string('transaction_id')->nullable();
-            $table->integer('installment_number');
+            $table->integer('installment_number')->nullable();
             $table->foreignId('received_by')->nullable()->constrained('users')->onDelete('set null');
             $table->timestamps();
         });

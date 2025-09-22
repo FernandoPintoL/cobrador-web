@@ -92,7 +92,12 @@ class CreditPaymentController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'payments_history' => $credit->payments()->with('cobrador')->orderBy('payment_date', 'desc')->get(),
+                'payments_history' => $credit->payments()
+                    ->with('cobrador')
+                    ->orderByRaw('CASE WHEN installment_number IS NULL THEN 1 ELSE 0 END')
+                    ->orderBy('installment_number', 'asc')
+                    ->orderBy('payment_date', 'asc')
+                    ->get(),
                 'credit' => $credit,
                 'summary' => [
                     'original_amount' => $credit->amount,
@@ -102,12 +107,10 @@ class CreditPaymentController extends Controller
                     'current_balance' => $credit->balance,
                     'total_amount' => $credit->total_amount,
                     'total_paid' => $credit->getTotalPaidAmount(),
-                    'pending_installments' => $credit->getPendingInstallments(),
-                    'expected_installments' => $credit->getExpectedInstallments(),
-                    'is_overdue' => $credit->isOverdue(),
-                    'overdue_amount' => $credit->getOverdueAmount(),
+                    'completed_installments_count' => (int) $credit->getCompletedInstallmentsCount(),
+                    'pending_installments' => max(((int) ($credit->total_installments ?? $credit->calculateTotalInstallments())) - (int) $credit->getCompletedInstallmentsCount(), 0),
                 ],
-                'payment_schedule' => $credit->getPaymentSchedule()
+                'payment_schedule' => $credit->getPaymentSchedule(),
             ],
         ]);
     }

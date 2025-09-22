@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Models\CashBalance;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class CashBalanceController extends BaseController
 {
@@ -41,7 +42,17 @@ class CashBalanceController extends BaseController
             'collected_amount' => 'required|numeric|min:0',
             'lent_amount' => 'required|numeric|min:0',
             'final_amount' => 'required|numeric|min:0',
+            'status' => 'nullable|in:open,closed,reconciled',
         ]);
+
+        // Evitar duplicados por cobrador + fecha
+        $exists = CashBalance::where('cobrador_id', $request->cobrador_id)
+            ->where('date', $request->date)
+            ->first();
+
+        if ($exists) {
+            return $this->sendError('Duplicado', 'Ya existe un balance para este cobrador en la fecha indicada', 400);
+        }
 
         $cashBalance = CashBalance::create([
             'cobrador_id' => $request->cobrador_id,
@@ -50,6 +61,7 @@ class CashBalanceController extends BaseController
             'collected_amount' => $request->collected_amount,
             'lent_amount' => $request->lent_amount,
             'final_amount' => $request->final_amount,
+            'status' => $request->status ?? 'open',
         ]);
 
         $cashBalance->load(['cobrador']);
@@ -63,6 +75,7 @@ class CashBalanceController extends BaseController
     public function show(CashBalance $cashBalance)
     {
         $cashBalance->load(['cobrador']);
+
         return $this->sendResponse($cashBalance);
     }
 
@@ -78,6 +91,7 @@ class CashBalanceController extends BaseController
             'collected_amount' => 'required|numeric|min:0',
             'lent_amount' => 'required|numeric|min:0',
             'final_amount' => 'required|numeric|min:0',
+            'status' => 'nullable|in:open,closed,reconciled',
         ]);
 
         $cashBalance->update([
@@ -87,6 +101,7 @@ class CashBalanceController extends BaseController
             'collected_amount' => $request->collected_amount,
             'lent_amount' => $request->lent_amount,
             'final_amount' => $request->final_amount,
+            'status' => $request->status ?? $cashBalance->status,
         ]);
 
         $cashBalance->load(['cobrador']);
@@ -100,6 +115,7 @@ class CashBalanceController extends BaseController
     public function destroy(CashBalance $cashBalance)
     {
         $cashBalance->delete();
+
         return $this->sendResponse([], 'Balance de efectivo eliminado exitosamente');
     }
 
@@ -109,6 +125,7 @@ class CashBalanceController extends BaseController
     public function getByCobrador(User $cobrador)
     {
         $cashBalances = $cobrador->cashBalances()->orderBy('date', 'desc')->get();
+
         return $this->sendResponse($cashBalances);
     }
 
@@ -135,19 +152,19 @@ class CashBalanceController extends BaseController
     public function getDetailedBalance(CashBalance $cashBalance)
     {
         $cashBalance->load(['cobrador']);
-        
+
         // Get payments for this balance date and cobrador
         $payments = \App\Models\Payment::where('cobrador_id', $cashBalance->cobrador_id)
             ->whereDate('payment_date', $cashBalance->date)
             ->with(['client', 'credit'])
             ->get();
-        
+
         // Get credits created on this date by this cobrador
         $credits = \App\Models\Credit::where('created_by', $cashBalance->cobrador_id)
             ->whereDate('created_at', $cashBalance->date)
             ->with(['client'])
             ->get();
-        
+
         $data = [
             'cash_balance' => $cashBalance,
             'payments' => $payments,
@@ -157,9 +174,9 @@ class CashBalanceController extends BaseController
                 'actual_final' => $cashBalance->final_amount,
                 'difference' => $cashBalance->final_amount - ($cashBalance->initial_amount + $cashBalance->collected_amount - $cashBalance->lent_amount),
                 'is_balanced' => abs($cashBalance->final_amount - ($cashBalance->initial_amount + $cashBalance->collected_amount - $cashBalance->lent_amount)) < 0.01,
-            ]
+            ],
         ];
-        
+
         return $this->sendResponse($data, 'Balance detallado obtenido exitosamente');
     }
 
@@ -199,4 +216,62 @@ class CashBalanceController extends BaseController
 
         return $this->sendResponse($cashBalance, 'Balance de efectivo creado con cálculo automático');
     }
-} 
+
+    /**
+     * Idempotent endpoint to open a cash balance (caja) for a cobrador and date.
+     * If an open cash balance already exists for the cobrador+date, it is returned.
+     * If not, a new one is created with provided initial_amount (or 0).
+     */
+    public function open(Request $request)
+    {
+        $request->validate([
+            'cobrador_id' => 'nullable|exists:users,id',
+            'date' => 'nullable|date',
+            'initial_amount' => 'nullable|numeric|min:0',
+        ]);
+
+        $currentUser = Auth::user();
+
+        // Determine cobrador for whom to open the box
+        if ($currentUser->hasRole('cobrador')) {
+            $cobradorId = $currentUser->id;
+        } else {
+            // admins or managers may open for any cobrador when providing cobrador_id
+            $cobradorId = $request->cobrador_id ?? null;
+            if (! $cobradorId) {
+                return $this->sendError('cobrador_id requerido', 'Debes especificar cobrador_id cuando no eres cobrador', 400);
+            }
+        }
+
+        $date = $request->date ?? now()->toDateString();
+
+        // If an open cash balance exists, return it (idempotent)
+        $existing = CashBalance::where('cobrador_id', $cobradorId)
+            ->where('date', $date)
+            ->where('status', 'open')
+            ->first();
+
+        if ($existing) {
+            $existing->load(['cobrador']);
+
+            return $this->sendResponse($existing, 'Caja ya abierta para esta fecha');
+        }
+
+        // Create new open cash balance
+        $initial = $request->initial_amount ?? 0;
+
+        $cashBalance = CashBalance::create([
+            'cobrador_id' => $cobradorId,
+            'date' => $date,
+            'initial_amount' => $initial,
+            'collected_amount' => 0,
+            'lent_amount' => 0,
+            'final_amount' => $initial,
+            'status' => 'open',
+        ]);
+
+        $cashBalance->load(['cobrador']);
+
+        return $this->sendResponse($cashBalance, 'Caja abierta exitosamente');
+    }
+}

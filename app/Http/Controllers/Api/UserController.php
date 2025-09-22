@@ -182,7 +182,7 @@ class UserController extends BaseController
                 count($location['coordinates']) === 2) {
 
                 $userData['longitude'] = $location['coordinates'][0]; // longitude es el primer elemento
-                $userData['latitude'] = $location['coordinates'][1];  // latitude es el segundo elemento
+                $userData['latitude'] = $location['coordinates'][1]; // latitude es el segundo elemento
             }
         }
 
@@ -321,7 +321,7 @@ class UserController extends BaseController
                 count($location['coordinates']) === 2) {
 
                 $userData['longitude'] = $location['coordinates'][0]; // longitude es el primer elemento
-                $userData['latitude'] = $location['coordinates'][1];  // latitude es el segundo elemento
+                $userData['latitude'] = $location['coordinates'][1]; // latitude es el segundo elemento
             }
         }
 
@@ -1007,7 +1007,7 @@ class UserController extends BaseController
         $allClients = User::whereHas('roles', function ($query) {
             $query->where('name', 'client');
         })
-            // Excluir usuarios que tengan rol de manager para evitar conflictos
+        // Excluir usuarios que tengan rol de manager para evitar conflictos
             ->whereDoesntHave('roles', function ($query) {
                 $query->where('name', 'manager');
             })
@@ -1227,7 +1227,8 @@ class UserController extends BaseController
                 $query->where(function ($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%")
                         ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('ci', 'like', "%{$search}%");
+                        ->orWhere('ci', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')

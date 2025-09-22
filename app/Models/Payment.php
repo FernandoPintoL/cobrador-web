@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -15,6 +16,7 @@ class Payment extends Model
         'client_id',
         'cobrador_id',
         'credit_id',
+        'cash_balance_id',
         'amount',
         'payment_date',
         'payment_method',
@@ -28,10 +30,34 @@ class Payment extends Model
 
     protected $casts = [
         'payment_date' => 'datetime',
-        'amount'       => 'decimal:2',
-        'latitude'     => 'decimal:8',
-        'longitude'    => 'decimal:8',
+        'amount' => 'decimal:2',
+        'cash_balance_id' => 'integer',
+        'latitude' => 'decimal:8',
+        'longitude' => 'decimal:8',
+        'installment_number' => 'integer',
     ];
+
+    /**
+     * Accessor: return 0 when installment_number is null.
+     */
+    public function getInstallmentNumberAttribute($value): int
+    {
+        return is_null($value) ? 0 : (int) $value;
+    }
+
+    /**
+     * Mutator: normalize values to integer or null.
+     */
+    public function setInstallmentNumberAttribute($value): void
+    {
+        if (is_null($value) || $value === '') {
+            $this->attributes['installment_number'] = null;
+
+            return;
+        }
+
+        $this->attributes['installment_number'] = (int) $value;
+    }
 
     /**
      * Get the client that made this payment.
@@ -74,13 +100,76 @@ class Payment extends Model
     }
 
     /**
+     * Calculate principal portion of this payment.
+     * Uses credit's total installments and amount to estimate principal per installment.
+     * Returns 0 when calculation is not possible.
+     */
+    public function getPrincipalPortionAttribute(): float
+    {
+        if (! $this->credit) {
+            return 0.0;
+        }
+
+        $credit = $this->credit;
+        $totalInstallments = $credit->calculateTotalInstallments();
+        if ($totalInstallments <= 0) {
+            return 0.0;
+        }
+
+        $installmentAmount = $credit->installment_amount ?? $credit->calculateInstallmentAmount();
+        $principalPerInstallment = $credit->amount ? ($credit->amount / $totalInstallments) : 0.0;
+
+        // Proporción del pago correspondiente a principal según la composición de la cuota
+        $ratio = $installmentAmount > 0 ? ($principalPerInstallment / $installmentAmount) : 0;
+
+        return (float) round($this->amount * $ratio, 2);
+    }
+
+    /**
+     * Interest portion: remainder of the payment after principal portion.
+     */
+    public function getInterestPortionAttribute(): float
+    {
+        return (float) round($this->amount - $this->principal_portion, 2);
+    }
+
+    /**
+     * Amount remaining to finish the installment this payment is paying.
+     * If installment_number is not set (0), returns null.
+     */
+    public function getRemainingForInstallmentAttribute(): ?float
+    {
+        if (! $this->credit) {
+            return null;
+        }
+
+        $installmentNumber = (int) $this->installment_number;
+        if ($installmentNumber <= 0) {
+            return null;
+        }
+
+        $credit = $this->credit;
+        $installmentAmount = $credit->installment_amount ?? $credit->calculateInstallmentAmount();
+
+        // Sum all payments that are associated to this credit and installment number
+        $paidForInstallment = $credit->payments()->where('installment_number', $installmentNumber)->sum('amount');
+
+        $remaining = $installmentAmount - $paidForInstallment;
+        if ($remaining < 0) {
+            $remaining = 0;
+        }
+
+        return (float) round($remaining, 2);
+    }
+
+    /**
      * Get the location as an array with latitude and longitude.
      */
     public function getLocationAttribute(): ?array
     {
         if ($this->latitude && $this->longitude) {
             return [
-                'latitude'  => (float) $this->latitude,
+                'latitude' => (float) $this->latitude,
                 'longitude' => (float) $this->longitude,
             ];
         }
@@ -94,7 +183,7 @@ class Payment extends Model
     public function setLocationAttribute($value): void
     {
         if (is_array($value) && isset($value['latitude']) && isset($value['longitude'])) {
-            $this->attributes['latitude']  = $value['latitude'];
+            $this->attributes['latitude'] = $value['latitude'];
             $this->attributes['longitude'] = $value['longitude'];
         }
     }
@@ -135,7 +224,7 @@ class Payment extends Model
             } catch (\Exception $e) {
                 Log::error('Error processing payment creation events', [
                     'payment_id' => $payment->id,
-                    'error'      => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
             }
         });
@@ -147,8 +236,8 @@ class Payment extends Model
                 if ($payment->wasChanged('amount')) {
                     $credit = $payment->credit;
                     if ($credit) {
-                        $oldAmount  = $payment->getOriginal('amount');
-                        $newAmount  = $payment->amount;
+                        $oldAmount = $payment->getOriginal('amount');
+                        $newAmount = $payment->amount;
                         $difference = $newAmount - $oldAmount;
 
                         $credit->balance = $credit->balance - $difference;
@@ -163,7 +252,7 @@ class Payment extends Model
             } catch (\Exception $e) {
                 Log::error('Error processing payment update events', [
                     'payment_id' => $payment->id,
-                    'error'      => $e->getMessage(),
+                    'error' => $e->getMessage(),
                 ]);
             }
         });

@@ -17,6 +17,7 @@ class CashBalance extends Model
         'collected_amount',
         'lent_amount',
         'final_amount',
+        'status',
     ];
 
     protected $casts = [
@@ -25,6 +26,7 @@ class CashBalance extends Model
         'collected_amount' => 'decimal:2',
         'lent_amount' => 'decimal:2',
         'final_amount' => 'decimal:2',
+        'status' => 'string',
     ];
 
     /**
@@ -34,4 +36,4 @@ class CashBalance extends Model
     {
         return $this->belongsTo(User::class, 'cobrador_id');
     }
-} 
+}

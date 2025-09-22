@@ -449,7 +449,7 @@ Las respuestas de error:
 {
   "credit_id": "integer (opcional)",
   "received_by": "integer (opcional)",
-  "payment_method": "cash|transfer|check|other (opcional)",
+  "payment_method": "cash|transfer|card|mobile_payment (opcional)",
   "date_from": "YYYY-MM-DD (opcional)",
   "date_to": "YYYY-MM-DD (opcional)",
   "amount_min": "numeric (opcional)",
@@ -504,7 +504,7 @@ Las respuestas de error:
 {
   "credit_id": "integer (requerido)",
   "amount": "numeric min:0.01 (requerido)",
-  "payment_method": "cash|transfer|check|other (requerido)",
+  "payment_method": "cash|transfer|card|mobile_payment (requerido)",
   "payment_date": "YYYY-MM-DD (opcional)",
   "latitude": "numeric -90 to 90 (opcional)",
   "longitude": "numeric -180 to 180 (opcional)"
@@ -551,7 +551,7 @@ Las respuestas de error:
 ```json
 {
   "amount": "numeric min:0.01 (opcional)",
-  "payment_method": "cash|transfer|check|other (opcional)",
+  "payment_method": "cash|transfer|card|mobile_payment (opcional)",
   "payment_date": "YYYY-MM-DD (opcional)",
   "notes": "string max:1000 (opcional)"
 }

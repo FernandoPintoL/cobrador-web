@@ -225,6 +225,15 @@ class User extends Authenticatable
     }
 
     /**
+     * Backward-compatible alias: payments of this user as client.
+     * Many modules (e.g., MapController) reference User::payments.
+     */
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class, 'client_id');
+    }
+
+    /**
      * Get the payments where the user is the cobrador.
      */
     public function paymentsAsCobrador(): HasMany
