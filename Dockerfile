@@ -7,6 +7,8 @@ RUN apk add --no-cache \
     curl \
     nodejs \
     npm \
+    nginx \
+    supervisor \
     libzip-dev \
     zlib-dev \
     $PHPIZE_DEPS
@@ -36,6 +38,11 @@ RUN npm ci
 # Copy application code
 COPY . /app/
 
+# Configure Nginx and Supervisor
+RUN mkdir -p /run/nginx /var/log/nginx \
+    && cp /app/nginx.conf /etc/nginx/conf.d/default.conf \
+    && cp /app/supervisord.conf /etc/supervisord.conf
+
 # Build assets
 RUN npm run build
 
@@ -46,3 +53,9 @@ RUN php artisan package:discover --ansi && \
     php artisan view:cache && \
     chmod 777 -R storage/ && \
     chmod 777 -R public/
+
+# Expose HTTP port (Railway defaults to 8080)
+EXPOSE 8080
+
+# Start Nginx and PHP-FPM via Supervisor
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
