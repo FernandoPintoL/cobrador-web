@@ -24,7 +24,8 @@ WORKDIR /app
 COPY composer.json composer.lock ./
 
 # Install PHP dependencies (now that ext-zip is available)
-RUN composer install --no-dev --optimize-autoloader
+# Defer Composer scripts (which call artisan) until after app code is copied
+RUN composer install --no-dev --optimize-autoloader --no-scripts
 
 # Copy package files
 COPY package.json package-lock.json ./
@@ -39,7 +40,8 @@ COPY . /app/
 RUN npm run build
 
 # Run Laravel optimizations
-RUN php artisan config:cache && \
+RUN php artisan package:discover --ansi && \
+    php artisan config:cache && \
     php artisan route:cache && \
     php artisan view:cache && \
     chmod 777 -R storage/ && \
