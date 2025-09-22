@@ -56,5 +56,5 @@ RUN php artisan package:discover --ansi || true && \
 # Expose HTTP port (Railway defaults to 8080)
 EXPOSE 8080
 
-# Start Nginx and PHP-FPM via Supervisor
+# Start Nginx and PHP-FPM via Supervisor (no automatic migrations)
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]

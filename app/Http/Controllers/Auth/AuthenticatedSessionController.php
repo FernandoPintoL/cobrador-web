@@ -33,7 +33,9 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('dashboard', absolute: false));
+        $default = route(\Illuminate\Support\Facades\Route::has('dashboard') ? 'dashboard' : 'home', absolute: false);
+
+        return redirect()->intended($default);
     }
 
     /**
