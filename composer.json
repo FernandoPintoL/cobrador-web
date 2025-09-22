@@ -91,6 +91,9 @@
         },
         "platform-check": false
     },
+    "provide": {
+        "ext-gd": "*"
+    },
     "minimum-stability": "stable",
     "prefer-stable": true
 }
