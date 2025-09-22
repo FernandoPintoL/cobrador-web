@@ -39,8 +39,8 @@ RUN npm ci
 COPY . /app/
 
 # Configure Nginx and Supervisor
-RUN mkdir -p /run/nginx /var/log/nginx \
-    && cp /app/nginx.conf /etc/nginx/conf.d/default.conf \
+RUN mkdir -p /run/nginx /var/log/nginx /etc/nginx/http.d \
+    && cp /app/nginx.conf /etc/nginx/http.d/default.conf \
     && cp /app/supervisord.conf /etc/supervisord.conf
 
 # Build assets
