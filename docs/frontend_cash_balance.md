@@ -187,7 +187,7 @@ A continuación se describen los endpoints relevantes, JSON de request y respues
   {
     "credit_id": 789,
     "amount": 50.00,
-    "payment_method": "cash", // cash|transfer|check|other
+    "payment_method": "cash", // cash|transfer|card|mobile_payment
     "payment_date": "2025-09-21",
     "latitude": -12.045, // opcional
     "longitude": -77.028, // opcional
@@ -224,7 +224,7 @@ A continuación se describen los endpoints relevantes, JSON de request y respues
 
 - `initial_amount`, `collected_amount`, `lent_amount`, `final_amount`: numéricos, >= 0, 2 decimales permitidos.
 - `date`: formato ISO `YYYY-MM-DD`.
-- `payment_method`: must be one of ["cash","transfer","check","other"].
+- `payment_method`: debe ser uno de ["cash","transfer","card","mobile_payment"].
 - `amount` en pagos: mínimo 0.01, no mayor que `credit.balance` (el UI debe mostrar balance pendiente antes de enviar).
 
 ## Manejo de errores y mensajes UX
@@ -288,6 +288,18 @@ A continuación se describen los endpoints relevantes, JSON de request y respues
   Success: { payments: [ { id, cash_balance_id, ... } ], total_paid }
   Error (sin caja abierta): 400 con mensaje "Caja no abierta".
 
+8) POST /api/cash-balances/{id}/close
+
+- Propósito: cierre explícito de la caja y/o reconciliación.
+- Request JSON:
+  {
+    "final_amount": 1400.00,            // requerido
+    "collected_amount": 500.00,         // opcional
+    "lent_amount": 100.00,              // opcional
+    "status": "closed"                 // requerido: "closed" | "reconciled"
+  }
+- Success: devuelve la caja actualizada con el nuevo `status`.
+
 ## Consideraciones de implementación frontend (tech tips)
 
 - Componentes reutilizables:
@@ -311,6 +323,7 @@ A continuación se describen los endpoints relevantes, JSON de request y respues
 
 - Fecha base: usar `date` (YYYY-MM-DD) como la unidad para la caja; no depender de timestamps con zona horaria.
 - Recomendación para reconciliación exacta: sumar pagos `collected_amount` usando `cash_balance_id` preferentemente; como fallback sumar por `payment_date` y `cobrador_id`.
+ - Nota: los pagos considerados como recaudados para cálculos automáticos son los de `status = "completed"`.
 - Auditing: considerar añadir `opened_by`, `closed_by`, `closed_at` al modelo `cash_balances` en una futura migración.
 
 ---

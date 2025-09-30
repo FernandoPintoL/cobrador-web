@@ -192,10 +192,10 @@ class CashBalanceController extends BaseController
             'final_amount' => 'required|numeric|min:0',
         ]);
 
-        // Calculate collected amount from payments
+        // Calculate collected amount from payments (use 'completed' for consistency)
         $collectedAmount = \App\Models\Payment::where('cobrador_id', $request->cobrador_id)
             ->whereDate('payment_date', $request->date)
-            ->where('status', 'paid')
+            ->where('status', 'completed')
             ->sum('amount');
 
         // Calculate lent amount from credits created on this date
@@ -218,6 +218,32 @@ class CashBalanceController extends BaseController
     }
 
     /**
+     * Close or reconcile a cash balance explicitly.
+     * Allows updating collected/lent/final amounts and setting status to closed or reconciled.
+     */
+    public function close(Request $request, CashBalance $cashBalance)
+    {
+        $request->validate([
+            'final_amount' => 'required|numeric|min:0',
+            'collected_amount' => 'nullable|numeric|min:0',
+            'lent_amount' => 'nullable|numeric|min:0',
+            'status' => 'required|in:closed,reconciled',
+        ]);
+
+        // Update fields (keep existing when not provided)
+        $cashBalance->update([
+            'collected_amount' => $request->has('collected_amount') ? (float) $request->collected_amount : $cashBalance->collected_amount,
+            'lent_amount' => $request->has('lent_amount') ? (float) $request->lent_amount : $cashBalance->lent_amount,
+            'final_amount' => (float) $request->final_amount,
+            'status' => $request->status,
+        ]);
+
+        $cashBalance->load(['cobrador']);
+
+        return $this->sendResponse($cashBalance, 'Caja actualizada y cerrada exitosamente');
+    }
+
+    /**
      * Idempotent endpoint to open a cash balance (caja) for a cobrador and date.
      * If an open cash balance already exists for the cobrador+date, it is returned.
      * If not, a new one is created with provided initial_amount (or 0).
@@ -233,7 +259,7 @@ class CashBalanceController extends BaseController
         $currentUser = Auth::user();
 
         // Determine cobrador for whom to open the box
-        if ($currentUser->hasRole('cobrador')) {
+        if ($currentUser instanceof \App\Models\User && $currentUser->hasRole('cobrador')) {
             $cobradorId = $currentUser->id;
         } else {
             // admins or managers may open for any cobrador when providing cobrador_id

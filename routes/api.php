@@ -3,7 +3,6 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CashBalanceController;
 use App\Http\Controllers\Api\CreditController;
-use App\Http\Controllers\Api\CreditPaymentController;
 use App\Http\Controllers\Api\CreditWaitingListController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\InterestRateController;
@@ -129,17 +128,15 @@ Route::middleware('auth:sanctum')->group(function () {
     // Rutas duplicadas removidas: approve/reject/deliver/reschedule en CreditController
     //    Route::post('/credits/waiting-list', [CreditController::class, 'storeInWaitingList'])->name('api.credits.store-waiting-list');
 
-    // Créditos atrasados
-    Route::get('/credits/overdue', [CreditPaymentController::class, 'getOverdueCredits'])->name('api.credits.overdue');
+    // Créditos atrasados - usar endpoint unificado en CreditController
+    // Route::get('/credits/overdue', [CreditController::class, 'getCreditsRequiringAttention'])->name('api.credits.overdue');
 
-    // Gestión avanzada de pagos de créditos
-    Route::prefix('credits/{credit}')->group(function () {
-        // Preferir Api\PaymentController::store para crear pagos
-        Route::get('/details', [CreditPaymentController::class, 'getCreditDetails'])->name('api.credits.details');
-        Route::get('/payment-schedule', [CreditPaymentController::class, 'getPaymentSchedule'])->name('api.credits.payment-schedule');
-        // Route::post('/payments', [CreditPaymentController::class, 'processPayment'])->name('api.credits.process-payment');
-        //        Route::post('/simulate-payment', [CreditPaymentController::class, 'simulatePayment'])->name('api.credits.simulate-payment');
-    });
+    // Gestión avanzada de pagos de créditos - mover a PaymentController/CreditController si se requiere
+    // Route::prefix('credits/{credit}')->group(function () {
+    //     Route::get('/details', [CreditController::class, 'show'])->name('api.credits.details');
+    //     // Para un cronograma formal, implementar en CreditController si es necesario
+    //     // Route::get('/payment-schedule', [CreditController::class, 'getPaymentSchedule'])->name('api.credits.payment-schedule');
+    // });
 
     // Sistema de Lista de Espera para Créditos - UNIFICADO
     Route::prefix('credits/waiting-list')->group(function () {
@@ -185,6 +182,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/cash-balances/{cashBalance}/detailed', [CashBalanceController::class, 'getDetailedBalance'])->name('api.cash-balances.detailed');
     Route::post('/cash-balances/auto-calculate', [CashBalanceController::class, 'createWithAutoCalculation'])->name('api.cash-balances.auto-calculate');
     Route::post('/cash-balances/open', [CashBalanceController::class, 'open'])->name('api.cash-balances.open');
+    Route::post('/cash-balances/{cashBalance}/close', [CashBalanceController::class, 'close'])->name('api.cash-balances.close');
 
     // Notificaciones
     Route::apiResource('notifications', NotificationController::class)->names([
