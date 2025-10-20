@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Controllers\Api;
 
 use App\Models\CashBalance;
@@ -36,13 +35,13 @@ class CashBalanceController extends BaseController
     public function store(Request $request)
     {
         $request->validate([
-            'cobrador_id' => 'required|exists:users,id',
-            'date' => 'required|date',
-            'initial_amount' => 'required|numeric|min:0',
+            'cobrador_id'      => 'required|exists:users,id',
+            'date'             => 'required|date',
+            'initial_amount'   => 'required|numeric|min:0',
             'collected_amount' => 'required|numeric|min:0',
-            'lent_amount' => 'required|numeric|min:0',
-            'final_amount' => 'required|numeric|min:0',
-            'status' => 'nullable|in:open,closed,reconciled',
+            'lent_amount'      => 'required|numeric|min:0',
+            'final_amount'     => 'required|numeric|min:0',
+            'status'           => 'nullable|in:open,closed,reconciled',
         ]);
 
         // Evitar duplicados por cobrador + fecha
@@ -55,13 +54,13 @@ class CashBalanceController extends BaseController
         }
 
         $cashBalance = CashBalance::create([
-            'cobrador_id' => $request->cobrador_id,
-            'date' => $request->date,
-            'initial_amount' => $request->initial_amount,
+            'cobrador_id'      => $request->cobrador_id,
+            'date'             => $request->date,
+            'initial_amount'   => $request->initial_amount,
             'collected_amount' => $request->collected_amount,
-            'lent_amount' => $request->lent_amount,
-            'final_amount' => $request->final_amount,
-            'status' => $request->status ?? 'open',
+            'lent_amount'      => $request->lent_amount,
+            'final_amount'     => $request->final_amount,
+            'status'           => $request->status ?? 'open',
         ]);
 
         $cashBalance->load(['cobrador']);
@@ -85,23 +84,23 @@ class CashBalanceController extends BaseController
     public function update(Request $request, CashBalance $cashBalance)
     {
         $request->validate([
-            'cobrador_id' => 'required|exists:users,id',
-            'date' => 'required|date',
-            'initial_amount' => 'required|numeric|min:0',
+            'cobrador_id'      => 'required|exists:users,id',
+            'date'             => 'required|date',
+            'initial_amount'   => 'required|numeric|min:0',
             'collected_amount' => 'required|numeric|min:0',
-            'lent_amount' => 'required|numeric|min:0',
-            'final_amount' => 'required|numeric|min:0',
-            'status' => 'nullable|in:open,closed,reconciled',
+            'lent_amount'      => 'required|numeric|min:0',
+            'final_amount'     => 'required|numeric|min:0',
+            'status'           => 'nullable|in:open,closed,reconciled',
         ]);
 
         $cashBalance->update([
-            'cobrador_id' => $request->cobrador_id,
-            'date' => $request->date,
-            'initial_amount' => $request->initial_amount,
+            'cobrador_id'      => $request->cobrador_id,
+            'date'             => $request->date,
+            'initial_amount'   => $request->initial_amount,
             'collected_amount' => $request->collected_amount,
-            'lent_amount' => $request->lent_amount,
-            'final_amount' => $request->final_amount,
-            'status' => $request->status ?? $cashBalance->status,
+            'lent_amount'      => $request->lent_amount,
+            'final_amount'     => $request->final_amount,
+            'status'           => $request->status ?? $cashBalance->status,
         ]);
 
         $cashBalance->load(['cobrador']);
@@ -167,14 +166,14 @@ class CashBalanceController extends BaseController
             ->get();
 
         $data = [
-            'cash_balance' => $cashBalance,
-            'payments' => $payments,
-            'credits' => $credits,
+            'cash_balance'   => $cashBalance,
+            'payments'       => $payments,
+            'credits'        => $credits,
             'reconciliation' => [
                 'expected_final' => $cashBalance->initial_amount + $cashBalance->collected_amount - $cashBalance->lent_amount,
-                'actual_final' => $cashBalance->final_amount,
-                'difference' => $cashBalance->final_amount - ($cashBalance->initial_amount + $cashBalance->collected_amount - $cashBalance->lent_amount),
-                'is_balanced' => abs($cashBalance->final_amount - ($cashBalance->initial_amount + $cashBalance->collected_amount - $cashBalance->lent_amount)) < 0.01,
+                'actual_final'   => $cashBalance->final_amount,
+                'difference'     => $cashBalance->final_amount - ($cashBalance->initial_amount + $cashBalance->collected_amount - $cashBalance->lent_amount),
+                'is_balanced'    => abs($cashBalance->final_amount - ($cashBalance->initial_amount + $cashBalance->collected_amount - $cashBalance->lent_amount)) < 0.01,
             ],
         ];
 
@@ -187,10 +186,10 @@ class CashBalanceController extends BaseController
     public function createWithAutoCalculation(Request $request)
     {
         $request->validate([
-            'cobrador_id' => 'required|exists:users,id',
-            'date' => 'required|date',
+            'cobrador_id'    => 'required|exists:users,id',
+            'date'           => 'required|date',
             'initial_amount' => 'required|numeric|min:0',
-            'final_amount' => 'required|numeric|min:0',
+            'final_amount'   => 'required|numeric|min:0',
         ]);
 
         // Calculate collected amount from payments (use 'completed' for consistency)
@@ -206,12 +205,12 @@ class CashBalanceController extends BaseController
             ->sum('amount');
 
         $cashBalance = CashBalance::create([
-            'cobrador_id' => $request->cobrador_id,
-            'date' => $request->date,
-            'initial_amount' => $request->initial_amount,
+            'cobrador_id'      => $request->cobrador_id,
+            'date'             => $request->date,
+            'initial_amount'   => $request->initial_amount,
             'collected_amount' => $collectedAmount,
-            'lent_amount' => $lentAmount,
-            'final_amount' => $request->final_amount,
+            'lent_amount'      => $lentAmount,
+            'final_amount'     => $request->final_amount,
         ]);
 
         $cashBalance->load(['cobrador']);
@@ -226,18 +225,18 @@ class CashBalanceController extends BaseController
     public function close(Request $request, CashBalance $cashBalance)
     {
         $request->validate([
-            'final_amount' => 'required|numeric|min:0',
+            'final_amount'     => 'required|numeric|min:0',
             'collected_amount' => 'nullable|numeric|min:0',
-            'lent_amount' => 'nullable|numeric|min:0',
-            'status' => 'required|in:closed,reconciled',
+            'lent_amount'      => 'nullable|numeric|min:0',
+            'status'           => 'required|in:closed,reconciled',
         ]);
 
         // Update fields (keep existing when not provided)
         $cashBalance->update([
             'collected_amount' => $request->has('collected_amount') ? (float) $request->collected_amount : $cashBalance->collected_amount,
-            'lent_amount' => $request->has('lent_amount') ? (float) $request->lent_amount : $cashBalance->lent_amount,
-            'final_amount' => (float) $request->final_amount,
-            'status' => $request->status,
+            'lent_amount'      => $request->has('lent_amount') ? (float) $request->lent_amount : $cashBalance->lent_amount,
+            'final_amount'     => (float) $request->final_amount,
+            'status'           => $request->status,
         ]);
 
         $cashBalance->load(['cobrador']);
@@ -253,15 +252,15 @@ class CashBalanceController extends BaseController
     public function open(Request $request)
     {
         $request->validate([
-            'cobrador_id' => 'nullable|exists:users,id',
-            'date' => 'nullable|date',
+            'cobrador_id'    => 'nullable|exists:users,id',
+            'date'           => 'nullable|date',
             'initial_amount' => 'nullable|numeric|min:0',
         ]);
 
         $currentUser = Auth::user();
 
         // Determine cobrador for whom to open the box
-        if ($currentUser instanceof \App\Models\User && $currentUser->hasRole('cobrador')) {
+        if ($currentUser instanceof \App\Models\User  && $currentUser->hasRole('cobrador')) {
             $cobradorId = $currentUser->id;
         } else {
             // admins or managers may open for any cobrador when providing cobrador_id
@@ -285,6 +284,20 @@ class CashBalanceController extends BaseController
             return $this->sendResponse($existing, 'Caja ya abierta para esta fecha');
         }
 
+        // Check if a closed cash balance exists for the same date
+        $closedBoxToday = CashBalance::where('cobrador_id', $cobradorId)
+            ->where('date', $date)
+            ->where('status', 'closed')
+            ->first();
+
+        if ($closedBoxToday) {
+            return $this->sendError(
+                'Caja ya cerrada',
+                'La caja de ' . $date . ' ya fue cerrada. No se puede abrir una nueva caja para la misma fecha.',
+                422
+            );
+        }
+
         // BLOQUEO ESTRICTO: Verificar que NO existan cajas abiertas de fechas anteriores
         $previousOpenBoxes = CashBalance::where('cobrador_id', $cobradorId)
             ->where('date', '<', $date)
@@ -294,23 +307,25 @@ class CashBalanceController extends BaseController
 
         if ($previousOpenBoxes->isNotEmpty()) {
             $pendingDates = $previousOpenBoxes->pluck('date')->map(function ($d) {
-                return $d instanceof \Carbon\Carbon ? $d->format('d/m/Y') : $d;
+                return $d instanceof \Carbon\Carbon  ? $d->format('d/m/Y') : $d;
             })->toArray();
 
             return $this->sendError(
                 'Cajas pendientes de cierre',
-                'Debes cerrar las cajas de las siguientes fechas antes de abrir una nueva: '.implode(', ', $pendingDates),
-                422,
-                ['pending_boxes' => $previousOpenBoxes->map(function ($box) {
-                    return [
-                        'id' => $box->id,
-                        'date' => $box->date,
-                        'initial_amount' => $box->initial_amount,
-                        'collected_amount' => $box->collected_amount,
-                        'lent_amount' => $box->lent_amount,
-                        'final_amount' => $box->final_amount,
-                    ];
-                })]
+                [
+                    'message'       => 'Debes cerrar las cajas de las siguientes fechas antes de abrir una nueva: ' . implode(', ', $pendingDates),
+                    'pending_boxes' => $previousOpenBoxes->map(function ($box) {
+                        return [
+                            'id'               => $box->id,
+                            'date'             => $box->date,
+                            'initial_amount'   => $box->initial_amount,
+                            'collected_amount' => $box->collected_amount,
+                            'lent_amount'      => $box->lent_amount,
+                            'final_amount'     => $box->final_amount,
+                        ];
+                    }),
+                ],
+                422
             );
         }
 
@@ -318,13 +333,13 @@ class CashBalanceController extends BaseController
         $initial = $request->initial_amount ?? 0;
 
         $cashBalance = CashBalance::create([
-            'cobrador_id' => $cobradorId,
-            'date' => $date,
-            'initial_amount' => $initial,
+            'cobrador_id'      => $cobradorId,
+            'date'             => $date,
+            'initial_amount'   => $initial,
             'collected_amount' => 0,
-            'lent_amount' => 0,
-            'final_amount' => $initial,
-            'status' => 'open',
+            'lent_amount'      => 0,
+            'final_amount'     => $initial,
+            'status'           => 'open',
         ]);
 
         $cashBalance->load(['cobrador']);
@@ -340,17 +355,17 @@ class CashBalanceController extends BaseController
     {
         $request->validate([
             'cobrador_id' => 'nullable|exists:users,id',
-            'date' => 'nullable|date',
+            'date'        => 'nullable|date',
         ]);
 
         $currentUser = Auth::user();
 
         // Determine cobrador
-        if ($currentUser instanceof \App\Models\User && $currentUser->hasRole('cobrador')) {
+        if ($currentUser instanceof \App\Models\User  && $currentUser->hasRole('cobrador')) {
             $cobradorId = $currentUser->id;
         } else {
             $cobradorId = $request->cobrador_id ?? null;
-            if (!$cobradorId) {
+            if (! $cobradorId) {
                 return $this->sendError('cobrador_id requerido', 'Debes especificar cobrador_id cuando no eres cobrador', 400);
             }
         }
@@ -372,12 +387,12 @@ class CashBalanceController extends BaseController
             ->get();
 
         return $this->sendResponse([
-            'is_open' => $currentCashBalance !== null,
+            'is_open'              => $currentCashBalance !== null,
             'has_pending_closures' => $pendingClosures->isNotEmpty(),
-            'can_open_new' => $currentCashBalance === null && $pendingClosures->isEmpty(),
+            'can_open_new'         => $currentCashBalance === null && $pendingClosures->isEmpty(),
             'current_cash_balance' => $currentCashBalance,
-            'pending_closures' => $pendingClosures,
-            'date' => $date,
+            'pending_closures'     => $pendingClosures,
+            'date'                 => $date,
         ], 'Estado de caja obtenido exitosamente');
     }
 
@@ -394,7 +409,7 @@ class CashBalanceController extends BaseController
         $currentUser = Auth::user();
 
         // Determine cobrador
-        if ($currentUser instanceof \App\Models\User && $currentUser->hasRole('cobrador')) {
+        if ($currentUser instanceof \App\Models\User  && $currentUser->hasRole('cobrador')) {
             $cobradorId = $currentUser->id;
         } else {
             // admins or managers can check for specific cobrador
@@ -415,9 +430,9 @@ class CashBalanceController extends BaseController
             ->get();
 
         return $this->sendResponse([
-            'count' => $pendingBoxes->count(),
-            'pending_boxes' => $pendingBoxes,
-            'has_pending' => $pendingBoxes->isNotEmpty(),
+            'count'               => $pendingBoxes->count(),
+            'pending_boxes'       => $pendingBoxes,
+            'has_pending'         => $pendingBoxes->isNotEmpty(),
             'oldest_pending_date' => $pendingBoxes->first()?->date,
         ], 'Cajas pendientes de cierre obtenidas exitosamente');
     }
