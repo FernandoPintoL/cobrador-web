@@ -2,315 +2,426 @@
 
 namespace App\Services;
 
-use Exception;
+use App\Models\Credit;
+use App\Models\Payment;
+use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class WebSocketNotificationService
 {
-    private $host;
+    protected $wsUrl;
 
-    private $port;
+    protected $wsSecret;
 
-    private $secure;
+    protected $enabled;
 
-    private $endpoint;
+    protected $timeout;
+
+    protected $maxRetries = 3;
+
+    protected $retryDelay = 1000; // milliseconds
 
     public function __construct()
     {
-        $this->host = config('broadcasting.connections.websocket.host', '192.168.100.21');
-        $this->port = config('broadcasting.connections.websocket.port', 6001);
-        $this->secure = config('broadcasting.connections.websocket.secure', false);
-        $this->endpoint = config('broadcasting.connections.websocket.endpoint', '/notify');
+        $this->wsUrl = config('websocket.url', env('WEBSOCKET_URL', 'http://localhost:3001'));
+        $this->wsSecret = config('websocket.secret', env('WS_SECRET'));
+        $this->enabled = config('websocket.enabled', env('WEBSOCKET_ENABLED', true));
+        $this->timeout = config('websocket.timeout', env('WEBSOCKET_TIMEOUT', 5));
     }
 
     /**
-     * Get WebSocket server URL
+     * Verificar si el servicio WebSocket está habilitado
      */
-    private function getServerUrl()
+    public function isEnabled(): bool
     {
-        $protocol = $this->secure ? 'https' : 'http';
-
-        return "{$protocol}://{$this->host}:{$this->port}";
+        return (bool) $this->enabled;
     }
 
     /**
-     * Send notification to WebSocket server
+     * Verificar salud del servidor WebSocket (con cache)
      */
-    public function sendNotification(array $data)
+    public function checkHealth(): array
     {
-        try {
-            $url = $this->getServerUrl().$this->endpoint;
+        if (! $this->isEnabled()) {
+            return ['status' => 'disabled', 'message' => 'WebSocket service is disabled'];
+        }
 
-            $response = Http::timeout(10)->post($url, [
-                'event' => $data['event'] ?? 'notification',
-                'data' => $data,
-                'timestamp' => now()->toISOString(),
-            ]);
+        // Cache por 30 segundos
+        return Cache::remember('websocket_health', 30, function () {
+            try {
+                $response = Http::timeout($this->timeout)->get("{$this->wsUrl}/health");
 
-            if ($response->successful()) {
-                Log::info('WebSocket notification sent successfully', [
-                    'url' => $url,
-                    'data' => $data,
-                ]);
+                if ($response->successful()) {
+                    return $response->json() + ['status' => 'healthy'];
+                }
 
-                return true;
-            } else {
-                Log::warning('WebSocket notification failed', [
-                    'url' => $url,
-                    'status' => $response->status(),
-                    'response' => $response->body(),
-                ]);
+                return ['status' => 'unhealthy', 'message' => 'Server responded with error'];
+            } catch (\Exception $e) {
+                Log::warning('WebSocket health check failed', ['error' => $e->getMessage()]);
 
-                return false;
+                return ['status' => 'unreachable', 'message' => $e->getMessage()];
             }
-        } catch (Exception $e) {
-            Log::error('WebSocket notification error', [
-                'url' => $this->getServerUrl().$this->endpoint,
-                'error' => $e->getMessage(),
-                'data' => $data,
-            ]);
+        });
+    }
 
+    /**
+     * Notificar crédito creado (pendiente de aprobación)
+     */
+    public function notifyCreditCreated(Credit $credit, User $manager, User $cobrador): bool
+    {
+        if (! $this->isEnabled()) {
             return false;
         }
+
+        return $this->sendCreditNotification('created', $credit, $manager, $cobrador);
     }
 
     /**
-     * Send credit lifecycle notification
+     * Notificar crédito aprobado
      */
-    public function sendCreditNotification($credit, $action, $user, $manager = null, $cobrador = null)
+    public function notifyCreditApproved(Credit $credit, User $manager, User $cobrador, bool $entregaInmediata = false): bool
     {
-        try {
-            $url = $this->getServerUrl().'/credit-notification';
+        if (! $this->isEnabled()) {
+            return false;
+        }
 
-            $payload = [
-                'action' => $action,
-                'credit' => [
-                    'id' => $credit->id,
-                    'amount' => $credit->amount,
-                    'total_amount' => $credit->total_amount,
-                    'status' => $credit->status,
-                    'client_name' => $credit->client->name ?? 'Cliente desconocido',
-                ],
-                'user' => [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'type' => $user->getRoleNames()->first(),
-                ],
+        // Agregar flag de entrega inmediata al crédito
+        $creditData = $credit->toArray();
+        $creditData['entrega_inmediata'] = $entregaInmediata;
+
+        return $this->sendCreditNotification('approved', $credit, $manager, $cobrador);
+    }
+
+    /**
+     * Notificar crédito rechazado
+     */
+    public function notifyCreditRejected(Credit $credit, User $manager, User $cobrador): bool
+    {
+        if (! $this->isEnabled()) {
+            return false;
+        }
+
+        return $this->sendCreditNotification('rejected', $credit, $manager, $cobrador);
+    }
+
+    /**
+     * Notificar crédito entregado
+     */
+    public function notifyCreditDelivered(Credit $credit, User $manager, User $cobrador): bool
+    {
+        if (! $this->isEnabled()) {
+            return false;
+        }
+
+        return $this->sendCreditNotification('delivered', $credit, $manager, $cobrador);
+    }
+
+    /**
+     * Notificar que crédito requiere atención
+     */
+    public function notifyCreditRequiresAttention(Credit $credit, User $cobrador): bool
+    {
+        if (! $this->isEnabled()) {
+            return false;
+        }
+
+        return $this->sendCreditNotification('requires_attention', $credit, null, $cobrador);
+    }
+
+    /**
+     * Notificar pago recibido
+     */
+    public function notifyPaymentReceived(Payment $payment, User $cobrador, ?User $manager = null, ?User $client = null): bool
+    {
+        if (! $this->isEnabled()) {
+            return false;
+        }
+
+        $payload = [
+            'payment' => [
+                'id' => $payment->id,
+                'amount' => $payment->amount,
+                'credit_id' => $payment->credit_id,
+                'status' => $payment->status,
+                'payment_date' => $payment->payment_date?->toISOString(),
+            ],
+            'cobrador' => [
+                'id' => (string) $cobrador->id,
+                'name' => $cobrador->name,
+                'email' => $cobrador->email,
+            ],
+        ];
+
+        if ($manager) {
+            $payload['manager'] = [
+                'id' => (string) $manager->id,
+                'name' => $manager->name,
+                'email' => $manager->email,
             ];
-
-            // Agregar información del manager si está disponible
-            if ($manager) {
-                $payload['manager'] = [
-                    'id' => $manager->id,
-                    'name' => $manager->name,
-                    'type' => 'manager',
-                ];
-            }
-
-            // Agregar información del cobrador si está disponible
-            if ($cobrador) {
-                $payload['cobrador'] = [
-                    'id' => $cobrador->id,
-                    'name' => $cobrador->name,
-                    'type' => 'cobrador',
-                ];
-            }
-
-            $response = Http::timeout(10)->post($url, $payload);
-
-            if ($response->successful()) {
-                Log::info('Credit WebSocket notification sent successfully', [
-                    'action' => $action,
-                    'credit_id' => $credit->id,
-                    'user_id' => $user->id,
-                ]);
-
-                return true;
-            } else {
-                Log::warning('Credit WebSocket notification failed', [
-                    'url' => $url,
-                    'status' => $response->status(),
-                    'response' => $response->body(),
-                ]);
-
-                return false;
-            }
-        } catch (Exception $e) {
-            Log::error('Credit WebSocket notification error', [
-                'action' => $action,
-                'credit_id' => $credit->id,
-                'error' => $e->getMessage(),
-            ]);
-
-            return false;
         }
-    }
 
-    /**
-     * Send payment notification
-     */
-    public function sendPaymentNotification($payment, $cobrador, $manager = null)
-    {
-        try {
-            $url = $this->getServerUrl().'/payment-notification';
-
-            $payload = [
-                'payment' => [
-                    'id' => $payment->id,
-                    'amount' => $payment->amount,
-                    'payment_date' => $payment->payment_date,
-                    'payment_method' => $payment->payment_method,
-                    'credit_id' => $payment->credit_id,
-                ],
-                'cobrador' => [
-                    'id' => $cobrador->id,
-                    'name' => $cobrador->name,
-                    'type' => 'cobrador',
-                ],
-                'client' => [
-                    'id' => $payment->credit->client->id,
-                    'name' => $payment->credit->client->name,
-                    'type' => 'client',
-                ],
+        if ($client) {
+            $payload['client'] = [
+                'id' => (string) $client->id,
+                'name' => $client->name,
             ];
+        }
 
-            // Agregar información del manager si está disponible
-            if ($manager) {
-                $payload['manager'] = [
-                    'id' => $manager->id,
-                    'name' => $manager->name,
-                    'type' => 'manager',
-                ];
-            }
+        return $this->sendRequest('/payment-notification', $payload, 'payment');
+    }
 
-            $response = Http::timeout(10)->post($url, $payload);
-
-            if ($response->successful()) {
-                Log::info('Payment WebSocket notification sent successfully', [
-                    'payment_id' => $payment->id,
-                    'cobrador_id' => $cobrador->id,
-                    'amount' => $payment->amount,
-                ]);
-
-                return true;
-            } else {
-                Log::warning('Payment WebSocket notification failed', [
-                    'url' => $url,
-                    'status' => $response->status(),
-                    'response' => $response->body(),
-                ]);
-
-                return false;
-            }
-        } catch (Exception $e) {
-            Log::error('Payment WebSocket notification error', [
-                'payment_id' => $payment->id,
-                'error' => $e->getMessage(),
-            ]);
-
+    /**
+     * Enviar notificación genérica a un usuario
+     */
+    public function notifyUser(string $userId, string $event, array $data): bool
+    {
+        if (! $this->isEnabled()) {
             return false;
         }
+
+        $payload = [
+            'userId' => $userId,
+            'event' => $event,
+            'data' => $data,
+        ];
+
+        return $this->sendRequest('/notify', $payload, 'generic notification');
     }
 
     /**
-     * Send credit attention notification
+     * Enviar notificación a un tipo de usuario (broadcast)
      */
-    public function sendCreditAttention($credit, $cobrador)
+    public function notifyUserType(string $userType, string $event, array $data): bool
     {
-        return $this->sendNotification([
-            'event' => 'credit_notification',
-            'type' => 'credit_attention',
-            'user_id' => $cobrador->id,
-            'credit_id' => $credit->id,
-            'client_id' => $credit->client_id,
-            'client_name' => $credit->client->name,
-            'amount' => $credit->amount,
-            'total_amount' => $credit->total_amount,
-            'interest_rate' => $credit->interest_rate,
-            'installment_amount' => $credit->installment_amount,
-            'payment_frequency' => $credit->frequency,
-            'end_date' => $credit->end_date->format('Y-m-d'),
-            'days_overdue' => now()->diffInDays($credit->end_date, false),
-        ]);
+        if (! $this->isEnabled()) {
+            return false;
+        }
+
+        $payload = [
+            'userType' => $userType, // cobrador, manager, admin, client
+            'event' => $event,
+            'data' => $data,
+        ];
+
+        return $this->sendRequest('/notify', $payload, "notification to {$userType}s");
     }
 
     /**
-     * Send payment received notification (legacy method for compatibility)
+     * Enviar notificación broadcast a todos
      */
-    public function sendPaymentReceived($payment, $cobrador)
+    public function notifyAll(string $event, array $data): bool
     {
-        // Usar el nuevo método mejorado
-        $manager = $cobrador->assignedManager;
+        if (! $this->isEnabled()) {
+            return false;
+        }
 
-        return $this->sendPaymentNotification($payment, $cobrador, $manager);
+        $payload = [
+            'event' => $event,
+            'data' => $data,
+        ];
+
+        return $this->sendRequest('/notify', $payload, 'broadcast notification');
     }
 
     /**
-     * Send route notification
+     * Test de conexión al WebSocket
      */
-    public function sendRouteNotification($route, $cobrador)
+    public function testConnection(): array
     {
-        return $this->sendNotification([
-            'event' => 'route_notification',
-            'type' => 'route_update',
-            'user_id' => $cobrador->id,
-            'route_id' => $route->id,
-            'route_name' => $route->name,
-            'clients_count' => $route->clients()->count(),
-            'status' => $route->status,
-        ]);
-    }
+        if (! $this->isEnabled()) {
+            return [
+                'success' => false,
+                'message' => 'WebSocket service is disabled',
+                'enabled' => false,
+            ];
+        }
 
-    /**
-     * Send location update
-     */
-    public function sendLocationUpdate($userId, $latitude, $longitude)
-    {
-        return $this->sendNotification([
-            'event' => 'location_update',
-            'type' => 'location',
-            'user_id' => $userId,
-            'latitude' => $latitude,
-            'longitude' => $longitude,
-        ]);
-    }
-
-    /**
-     * Send custom message
-     */
-    public function sendMessage($fromUserId, $toUserId, $message)
-    {
-        return $this->sendNotification([
-            'event' => 'send_message',
-            'type' => 'message',
-            'from_user_id' => $fromUserId,
-            'to_user_id' => $toUserId,
-            'message' => $message,
-        ]);
-    }
-
-    /**
-     * Test WebSocket connection
-     */
-    public function testConnection()
-    {
         try {
-            $url = $this->getServerUrl().'/health';
-            $response = Http::timeout(5)->get($url);
+            $response = Http::timeout($this->timeout)->get("{$this->wsUrl}/health");
+
+            if ($response->successful()) {
+                return [
+                    'success' => true,
+                    'message' => 'WebSocket server is reachable',
+                    'data' => $response->json(),
+                    'enabled' => true,
+                    'url' => $this->wsUrl,
+                ];
+            }
 
             return [
-                'connected' => $response->successful(),
+                'success' => false,
+                'message' => 'WebSocket server responded with error',
                 'status' => $response->status(),
-                'response' => $response->json(),
-                'url' => $url,
+                'enabled' => true,
+                'url' => $this->wsUrl,
             ];
-        } catch (Exception $e) {
-            return [
-                'connected' => false,
+        } catch (\Exception $e) {
+            Log::error('WebSocket connection test failed', [
                 'error' => $e->getMessage(),
-                'url' => $this->getServerUrl(),
+                'url' => $this->wsUrl,
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Failed to connect to WebSocket server',
+                'error' => $e->getMessage(),
+                'enabled' => true,
+                'url' => $this->wsUrl,
             ];
         }
+    }
+
+    /**
+     * Obtener usuarios activos conectados al WebSocket
+     */
+    public function getActiveUsers(): array
+    {
+        if (! $this->isEnabled()) {
+            return ['total' => 0, 'users' => []];
+        }
+
+        try {
+            $response = Http::timeout($this->timeout)->get("{$this->wsUrl}/active-users");
+
+            if ($response->successful()) {
+                return $response->json();
+            }
+
+            return ['total' => 0, 'users' => [], 'error' => 'Failed to fetch active users'];
+        } catch (\Exception $e) {
+            Log::warning('Failed to get active WebSocket users', ['error' => $e->getMessage()]);
+
+            return ['total' => 0, 'users' => [], 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Enviar notificación de crédito
+     */
+    protected function sendCreditNotification(string $action, Credit $credit, ?User $manager, User $cobrador): bool
+    {
+        $payload = [
+            'action' => $action,
+            'credit' => [
+                'id' => $credit->id,
+                'amount' => $credit->amount,
+                'total_amount' => $credit->total_amount,
+                'balance' => $credit->balance,
+                'frequency' => $credit->frequency,
+                'status' => $credit->status,
+                'start_date' => $credit->start_date?->toDateString(),
+                'end_date' => $credit->end_date?->toDateString(),
+                'entrega_inmediata' => $credit->immediate_delivery_requested ?? false,
+                'scheduled_delivery_date' => $credit->scheduled_delivery_date?->toDateString(),
+            ],
+            'cobrador' => [
+                'id' => (string) $cobrador->id,
+                'name' => $cobrador->name,
+                'email' => $cobrador->email,
+            ],
+        ];
+
+        if ($manager) {
+            $payload['manager'] = [
+                'id' => (string) $manager->id,
+                'name' => $manager->name,
+                'email' => $manager->email,
+            ];
+        }
+
+        // Incluir información del cliente
+        if ($credit->client) {
+            $payload['credit']['client_name'] = $credit->client->name;
+            $payload['credit']['client_id'] = $credit->client->id;
+        }
+
+        return $this->sendRequest('/credit-notification', $payload, "credit {$action}");
+    }
+
+    /**
+     * Enviar request HTTP al WebSocket con retry automático
+     */
+    protected function sendRequest(string $endpoint, array $payload, string $logContext = 'request'): bool
+    {
+        if (! $this->wsSecret) {
+            Log::error('WebSocket secret not configured', ['endpoint' => $endpoint]);
+
+            return false;
+        }
+
+        $attempt = 0;
+        $lastException = null;
+
+        while ($attempt < $this->maxRetries) {
+            $attempt++;
+
+            try {
+                $response = Http::timeout($this->timeout)
+                    ->withHeaders(['x-ws-secret' => $this->wsSecret])
+                    ->post("{$this->wsUrl}{$endpoint}", $payload);
+
+                if ($response->successful()) {
+                    $data = $response->json();
+
+                    Log::info("WebSocket {$logContext} sent successfully", [
+                        'endpoint' => $endpoint,
+                        'attempt' => $attempt,
+                        'response' => $data,
+                    ]);
+
+                    return true;
+                }
+
+                Log::warning("WebSocket {$logContext} failed", [
+                    'endpoint' => $endpoint,
+                    'status' => $response->status(),
+                    'attempt' => $attempt,
+                    'response' => $response->body(),
+                ]);
+
+                // Si es error 401 (auth), no reintentar
+                if ($response->status() === 401) {
+                    Log::error('WebSocket authentication failed - check WS_SECRET', [
+                        'endpoint' => $endpoint,
+                    ]);
+
+                    return false;
+                }
+            } catch (\Exception $e) {
+                $lastException = $e;
+
+                Log::warning("WebSocket {$logContext} attempt {$attempt} failed", [
+                    'endpoint' => $endpoint,
+                    'error' => $e->getMessage(),
+                    'attempt' => $attempt,
+                    'max_retries' => $this->maxRetries,
+                ]);
+            }
+
+            // Esperar antes de reintentar (excepto en el último intento)
+            if ($attempt < $this->maxRetries) {
+                usleep($this->retryDelay * 1000 * $attempt); // Backoff exponencial
+            }
+        }
+
+        // Todos los intentos fallaron
+        Log::error("WebSocket {$logContext} failed after {$this->maxRetries} attempts", [
+            'endpoint' => $endpoint,
+            'payload' => $payload,
+            'last_error' => $lastException?->getMessage(),
+        ]);
+
+        return false;
+    }
+
+    /**
+     * Invalidar cache de salud
+     */
+    public function invalidateHealthCache(): void
+    {
+        Cache::forget('websocket_health');
     }
 }

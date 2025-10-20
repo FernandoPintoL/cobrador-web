@@ -2,9 +2,18 @@
   "permissions": {
     "allow": [
       "WebSearch",
-      "Bash(php artisan:*)"
+      "Bash(php artisan:*)",
+      "mcp__laravel-boost__application-info",
+      "mcp__laravel-boost__get-config",
+      "mcp__laravel-boost__database-schema",
+      "mcp__laravel-boost__list-routes",
+      "mcp__laravel-boost__read-log-entries"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "laravel-boost"
+  ]
 }

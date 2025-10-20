@@ -2,17 +2,29 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\CreditApproved;
+use App\Events\CreditDelivered;
+use App\Events\CreditRejected;
 use App\Http\Controllers\Controller;
 use App\Models\CashBalance;
 use App\Models\Credit;
+use App\Services\WebSocketNotificationService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class CreditWaitingListController extends Controller
 {
+    protected WebSocketNotificationService $wsService;
+
+    public function __construct(WebSocketNotificationService $wsService)
+    {
+        $this->wsService = $wsService;
+    }
+
     /**
      * Get credits pending approval
      */
@@ -210,6 +222,10 @@ class CreditWaitingListController extends Controller
             if (! $credit->end_date || Carbon::parse($credit->end_date)->lte($startDate)) {
                 $credit->end_date = $startDate->copy()->addDays(30)->toDateString();
             }
+
+            // Actualizar el campo immediate_delivery_requested
+            $credit->immediate_delivery_requested = $immediate;
+
             $credit->save();
 
             // Si la fecha es ahora o en el pasado (o immediate=true), entregar de inmediato
@@ -229,11 +245,31 @@ class CreditWaitingListController extends Controller
 
             DB::commit();
 
-            // Disparar eventos de actualización
-            /* event(new CreditWaitingListUpdate($credit->fresh(), 'approved', Auth::user()));
-            if ($shouldDeliverNow && $deliveredNow) {
-                event(new CreditWaitingListUpdate($credit->fresh(), 'delivered', Auth::user()));
-            } */
+            // Cargar relaciones necesarias
+            $credit->load(['client', 'client.assignedCobrador', 'client.assignedManager']);
+
+            // Obtener manager y cobrador
+            $manager = Auth::user();
+            $cobrador = $credit->client->assignedCobrador ?? $credit->createdBy;
+
+            // Disparar evento de aprobación
+            try {
+                event(new CreditApproved($credit, $manager, $cobrador, $shouldDeliverNow));
+
+                // Enviar notificación WebSocket
+                $this->wsService->notifyCreditApproved($credit, $manager, $cobrador, $shouldDeliverNow);
+
+                // Si se entregó inmediatamente, disparar evento de entrega
+                if ($shouldDeliverNow && $deliveredNow) {
+                    event(new CreditDelivered($credit, $manager, $cobrador));
+                    $this->wsService->notifyCreditDelivered($credit, $manager, $cobrador);
+                }
+            } catch (\Exception $e) {
+                Log::error('Error sending credit approval notification', [
+                    'credit_id' => $credit->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
 
             return response()->json([
                 'success' => true,
@@ -288,8 +324,25 @@ class CreditWaitingListController extends Controller
 
             DB::commit();
 
-            // Disparar evento de actualización
-            // event(new CreditWaitingListUpdate($credit->fresh(), 'rejected', Auth::user()));
+            // Cargar relaciones necesarias
+            $credit->load(['client', 'client.assignedCobrador', 'client.assignedManager']);
+
+            // Obtener manager y cobrador
+            $manager = Auth::user();
+            $cobrador = $credit->client->assignedCobrador ?? $credit->createdBy;
+
+            // Disparar evento de rechazo
+            try {
+                event(new CreditRejected($credit, $manager, $cobrador));
+
+                // Enviar notificación WebSocket
+                $this->wsService->notifyCreditRejected($credit, $manager, $cobrador);
+            } catch (\Exception $e) {
+                Log::error('Error sending credit rejection notification', [
+                    'credit_id' => $credit->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
 
             return response()->json([
                 'success' => true,
@@ -367,10 +420,45 @@ class CreditWaitingListController extends Controller
                 ], 422);
             }
 
+            // Auto-actualizar caja abierta: vincular crédito y actualizar montos
+            if ($authUser && $authUser->hasRole('cobrador') && isset($openCash)) {
+                $credit->update(['cash_balance_id' => $openCash->id]);
+
+                $openCash->update([
+                    'lent_amount' => $openCash->lent_amount + $credit->amount,
+                    'final_amount' => $openCash->final_amount - $credit->amount,
+                ]);
+            }
+
             DB::commit();
 
-            // Disparar evento de actualización
-            //            event(new CreditWaitingListUpdate($credit->fresh(), 'delivered', Auth::user()));
+            // Cargar relaciones necesarias
+            $credit->load(['client', 'client.assignedCobrador', 'client.assignedManager']);
+
+            // Obtener manager y cobrador
+            $deliveryUser = Auth::user();
+            $cobrador = $credit->client->assignedCobrador ?? $credit->createdBy;
+            $manager = $cobrador->assignedManager ?? $credit->client->assignedManager;
+
+            // Si no hay manager asignado y el usuario autenticado es manager, usarlo
+            if (! $manager && $deliveryUser->hasRole('manager')) {
+                $manager = $deliveryUser;
+            }
+
+            // Disparar evento de entrega solo si tenemos manager
+            if ($manager && $cobrador) {
+                try {
+                    event(new CreditDelivered($credit, $manager, $cobrador));
+
+                    // Enviar notificación WebSocket
+                    $this->wsService->notifyCreditDelivered($credit, $manager, $cobrador);
+                } catch (\Exception $e) {
+                    Log::error('Error sending credit delivery notification', [
+                        'credit_id' => $credit->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
 
             return response()->json([
                 'success' => true,

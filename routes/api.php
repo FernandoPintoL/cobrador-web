@@ -43,10 +43,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Usuarios
     Route::apiResource('users', UserController::class)->names([
-        'index' => 'api.users.index',
-        'store' => 'api.users.store',
-        'show' => 'api.users.show',
-        'update' => 'api.users.update',
+        'index'   => 'api.users.index',
+        'store'   => 'api.users.store',
+        'show'    => 'api.users.show',
+        'update'  => 'api.users.update',
         'destroy' => 'api.users.destroy',
     ]);
     Route::get('/users/{user}/roles', [UserController::class, 'getRoles'])->name('api.users.roles');
@@ -87,10 +87,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Rutas
     Route::apiResource('routes', RouteController::class)->names([
-        'index' => 'api.routes.index',
-        'store' => 'api.routes.store',
-        'show' => 'api.routes.show',
-        'update' => 'api.routes.update',
+        'index'   => 'api.routes.index',
+        'store'   => 'api.routes.store',
+        'show'    => 'api.routes.show',
+        'update'  => 'api.routes.update',
         'destroy' => 'api.routes.destroy',
     ]);
     Route::get('/routes/cobrador/{cobrador}', [RouteController::class, 'getByCobrador'])->name('api.routes.by-cobrador');
@@ -98,20 +98,19 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Tasas de interés
     Route::apiResource('interest-rates', InterestRateController::class)->names([
-        'index' => 'api.interest-rates.index',
-        'store' => 'api.interest-rates.store',
-        'show' => 'api.interest-rates.show',
-        'update' => 'api.interest-rates.update',
+        'index'   => 'api.interest-rates.index',
+        'store'   => 'api.interest-rates.store',
+        'show'    => 'api.interest-rates.show',
+        'update'  => 'api.interest-rates.update',
         'destroy' => 'api.interest-rates.destroy',
     ]);
     Route::get('/interest-rates/active', [InterestRateController::class, 'active'])->name('api.interest-rates.active');
 
     // Créditos - Rutas principales
     Route::apiResource('credits', CreditController::class)->names([
-        'index' => 'api.credits.index',
-        'store' => 'api.credits.store',
-        'show' => 'api.credits.show',
-        'update' => 'api.credits.update',
+        'index'   => 'api.credits.index',
+        'store'   => 'api.credits.store',
+        'update'  => 'api.credits.update',
         'destroy' => 'api.credits.destroy',
     ]);
     Route::get('/credits/{credit}/remaining-installments', [CreditController::class, 'getRemainingInstallments'])->name('api.credits.remaining-installments');
@@ -121,22 +120,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/credits/manager/{manager}/stats', [CreditController::class, 'getManagerStats'])->name('api.credits.manager.stats');
     Route::get('/credits-requiring-attention', [CreditController::class, 'getCreditsRequiringAttention'])->name('api.credits.requiring-attention');
 
-    // DEBUG: Ruta temporal para debuggear problema de listado de cobrador
-    //    Route::get('/debug-cobrador-credits', [CreditController::class, 'debugCobradorCredits'])->name('api.debug.cobrador-credits');
-
-    // Créditos - Gestión de aprobación y entrega (preferir endpoints unificados de waiting-list)
-    // Rutas duplicadas removidas: approve/reject/deliver/reschedule en CreditController
-    //    Route::post('/credits/waiting-list', [CreditController::class, 'storeInWaitingList'])->name('api.credits.store-waiting-list');
-
-    // Créditos atrasados - usar endpoint unificado en CreditController
-    // Route::get('/credits/overdue', [CreditController::class, 'getCreditsRequiringAttention'])->name('api.credits.overdue');
-
-    // Gestión avanzada de pagos de créditos - mover a PaymentController/CreditController si se requiere
-    // Route::prefix('credits/{credit}')->group(function () {
-    //     Route::get('/details', [CreditController::class, 'show'])->name('api.credits.details');
-    //     // Para un cronograma formal, implementar en CreditController si es necesario
-    //     // Route::get('/payment-schedule', [CreditController::class, 'getPaymentSchedule'])->name('api.credits.payment-schedule');
-    // });
+    // Gestión avanzada de pagos de créditos
+    Route::get('/credits/{credit}/details', [CreditController::class, 'show'])->name('api.credits.details');
 
     // Sistema de Lista de Espera para Créditos - UNIFICADO
     Route::prefix('credits/waiting-list')->group(function () {
@@ -157,10 +142,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Pagos - Rutas principales
     Route::apiResource('payments', PaymentController::class)->names([
-        'index' => 'api.payments.index',
-        'store' => 'api.payments.store',
-        'show' => 'api.payments.show',
-        'update' => 'api.payments.update',
+        'index'   => 'api.payments.index',
+        'store'   => 'api.payments.store',
+        'show'    => 'api.payments.show',
+        'update'  => 'api.payments.update',
         'destroy' => 'api.payments.destroy',
     ]);
     Route::get('/payments/credit/{credit}', [PaymentController::class, 'getByCredit'])->name('api.payments.by-credit');
@@ -169,27 +154,39 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/payments/recent', [PaymentController::class, 'getRecent'])->name('api.payments.recent');
     Route::get('/payments/today-summary', [PaymentController::class, 'getTodaySummary'])->name('api.payments.today-summary');
 
-    // Balances de efectivo
+    // Balances de efectivo - RUTAS ESPECÍFICAS PRIMERO (antes del resource)
+    Route::get('/cash-balances/current-status', [CashBalanceController::class, 'getCurrentStatus'])
+        ->name('api.cash-balances.current-status');
+    Route::get('/cash-balances/pending-closures', [CashBalanceController::class, 'getPendingClosures'])
+        ->name('api.cash-balances.pending-closures');
+    Route::get('/cash-balances/cobrador/{cobrador}', [CashBalanceController::class, 'getByCobrador'])
+        ->name('api.cash-balances.by-cobrador');
+    Route::get('/cash-balances/cobrador/{cobrador}/summary', [CashBalanceController::class, 'getSummary'])
+        ->name('api.cash-balances.summary');
+    Route::get('/cash-balances/{cashBalance}/detailed', [CashBalanceController::class, 'getDetailedBalance'])
+        ->name('api.cash-balances.detailed');
+    Route::post('/cash-balances/auto-calculate', [CashBalanceController::class, 'createWithAutoCalculation'])
+        ->name('api.cash-balances.auto-calculate');
+    Route::post('/cash-balances/open', [CashBalanceController::class, 'open'])
+        ->name('api.cash-balances.open');
+    Route::post('/cash-balances/{cashBalance}/close', [CashBalanceController::class, 'close'])
+        ->name('api.cash-balances.close');
+
+    // RESOURCE ROUTE AL FINAL (para evitar conflictos con las rutas específicas)
     Route::apiResource('cash-balances', CashBalanceController::class)->names([
-        'index' => 'api.cash-balances.index',
-        'store' => 'api.cash-balances.store',
-        'show' => 'api.cash-balances.show',
-        'update' => 'api.cash-balances.update',
+        'index'   => 'api.cash-balances.index',
+        'store'   => 'api.cash-balances.store',
+        'show'    => 'api.cash-balances.show',
+        'update'  => 'api.cash-balances.update',
         'destroy' => 'api.cash-balances.destroy',
     ]);
-    Route::get('/cash-balances/cobrador/{cobrador}', [CashBalanceController::class, 'getByCobrador'])->name('api.cash-balances.by-cobrador');
-    Route::get('/cash-balances/cobrador/{cobrador}/summary', [CashBalanceController::class, 'getSummary'])->name('api.cash-balances.summary');
-    Route::get('/cash-balances/{cashBalance}/detailed', [CashBalanceController::class, 'getDetailedBalance'])->name('api.cash-balances.detailed');
-    Route::post('/cash-balances/auto-calculate', [CashBalanceController::class, 'createWithAutoCalculation'])->name('api.cash-balances.auto-calculate');
-    Route::post('/cash-balances/open', [CashBalanceController::class, 'open'])->name('api.cash-balances.open');
-    Route::post('/cash-balances/{cashBalance}/close', [CashBalanceController::class, 'close'])->name('api.cash-balances.close');
 
     // Notificaciones
     Route::apiResource('notifications', NotificationController::class)->names([
-        'index' => 'api.notifications.index',
-        'store' => 'api.notifications.store',
-        'show' => 'api.notifications.show',
-        'update' => 'api.notifications.update',
+        'index'   => 'api.notifications.index',
+        'store'   => 'api.notifications.store',
+        'show'    => 'api.notifications.show',
+        'update'  => 'api.notifications.update',
         'destroy' => 'api.notifications.destroy',
     ]);
     Route::patch('/notifications/{notification}/mark-read', [NotificationController::class, 'markAsRead'])->name('api.notifications.mark-read');
@@ -217,6 +214,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/credits', [ReportController::class, 'creditsReport'])->name('api.reports.credits');
     Route::get('/reports/users', [ReportController::class, 'usersReport'])->name('api.reports.users');
     Route::get('/reports/balances', [ReportController::class, 'balancesReport'])->name('api.reports.balances');
+    Route::get('/reports/overdue', [ReportController::class, 'overdueReport'])->name('api.reports.overdue');
+    Route::get('/reports/performance', [ReportController::class, 'performanceReport'])->name('api.reports.performance');
+    Route::get('/reports/cash-flow-forecast', [ReportController::class, 'cashFlowForecastReport'])->name('api.reports.cash-flow-forecast');
+    Route::get('/reports/waiting-list', [ReportController::class, 'waitingListReport'])->name('api.reports.waiting-list');
 
     // WebSocket Notifications eliminadas
 });

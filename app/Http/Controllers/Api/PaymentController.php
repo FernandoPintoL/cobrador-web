@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\PaymentCreated;
 use App\Models\CashBalance;
 use App\Models\Credit;
 use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class PaymentController extends BaseController
 {
@@ -118,6 +120,9 @@ class PaymentController extends BaseController
         $payments = [];
         $totalPaid = 0.0;
 
+        // Obtener el monto total acumulado hasta el momento para este crédito
+        $totalAccumulated = $credit->payments()->sum('amount');
+
         // Construir un mapa de montos pagados por número de cuota existente
         $paidByInstallment = $credit->payments()
             ->whereNotNull('installment_number')
@@ -175,12 +180,16 @@ class PaymentController extends BaseController
 
             $toPay = (float) min($remainingAmountToAllocate, $remainingForInstallment);
 
+            // Actualizar el monto acumulado
+            $totalAccumulated += $toPay;
+
             $payment = Payment::create([
                 'credit_id' => $request->credit_id,
                 'client_id' => $credit->client->id,
                 'cobrador_id' => $credit->createdBy->id,
                 'cash_balance_id' => $cashBalance ? $cashBalance->id : null,
                 'amount' => $toPay,
+                'accumulated_amount' => $totalAccumulated,
                 'payment_method' => $request->payment_method,
                 'payment_date' => $request->payment_date ?: now()->toDateString(),
                 'received_by' => $currentUser->id,
@@ -209,13 +218,42 @@ class PaymentController extends BaseController
         // se realiza en el evento `created` del modelo `Payment`.
         // Para evitar descontar doblemente, no modificamos el balance aquí.
 
+        // Actualizar el collected_amount de la caja si existe
+        if ($cashBalance) {
+            $cashBalance->collected_amount += $totalPaid;
+            $cashBalance->final_amount += $totalPaid;
+            $cashBalance->save();
+        }
+
         // Cargar relaciones para todos los pagos creados
         foreach ($payments as $p) {
             $p->load(['credit.client', 'receivedBy']);
         }
 
-        // Disparar evento de pago recibido para el primer pago si es necesario
-        //        event(new PaymentReceived($payments[0]));
+        // Disparar evento de pago creado (para notificaciones WebSocket)
+        if (count($payments) > 0) {
+            $payment = $payments[0];
+            $cobrador = $payment->receivedBy;       // Usuario que registró el pago
+            $manager = $cobrador->assignedManager; // El manager del cobrador
+            $client = $payment->credit->client;
+
+            Log::info('🔔 Disparando evento PaymentCreated', [
+                'payment_id' => $payment->id,
+                'amount' => $payment->amount,
+                'cobrador_id' => $cobrador->id,
+                'cobrador_name' => $cobrador->name,
+                'manager_id' => $manager?->id,
+                'manager_name' => $manager?->name,
+                'client_id' => $client->id,
+                'client_name' => $client->name,
+            ]);
+
+            event(new PaymentCreated($payment, $cobrador, $manager, $client));
+
+            Log::info('✅ Evento PaymentCreated disparado correctamente');
+        } else {
+            Log::warning('⚠️ No se disparó evento PaymentCreated: no hay pagos creados');
+        }
 
         return $this->sendResponse([
             'payments' => $payments,
@@ -267,15 +305,65 @@ class PaymentController extends BaseController
         $oldAmount = $payment->amount;
         $credit = $payment->credit;
 
-        $payment->update([
-            'amount' => $request->amount,
-            'payment_method' => $request->payment_method,
-            'payment_date' => $request->payment_date ?: now()->toDateString(),
-            'notes' => $request->notes,
-        ]);
-
-        // Ajustar el balance del crédito
+        // Calcular la diferencia en el monto
         $difference = $request->amount - $oldAmount;
+
+        // Recalcular el monto acumulado para este pago y pagos posteriores
+        if ($difference != 0) {
+            // Obtener todos los pagos del crédito ordenados por fecha
+            $allPayments = $credit->payments()->orderBy('payment_date')->orderBy('id')->get();
+
+            // Encontrar el índice del pago actual
+            $currentIndex = -1;
+            foreach ($allPayments as $index => $p) {
+                if ($p->id === $payment->id) {
+                    $currentIndex = $index;
+                    break;
+                }
+            }
+
+            // Actualizar este pago y los pagos posteriores
+            if ($currentIndex >= 0) {
+                $accumulatedAmount = $currentIndex > 0
+                    ? $allPayments[$currentIndex - 1]->accumulated_amount
+                    : 0;
+
+                // Actualizar este pago
+                $accumulatedAmount += $request->amount;
+                $payment->update([
+                    'amount' => $request->amount,
+                    'accumulated_amount' => $accumulatedAmount,
+                    'payment_method' => $request->payment_method,
+                    'payment_date' => $request->payment_date ?: now()->toDateString(),
+                    'notes' => $request->notes,
+                ]);
+
+                // Actualizar pagos posteriores
+                for ($i = $currentIndex + 1; $i < count($allPayments); $i++) {
+                    $accumulatedAmount += $allPayments[$i]->amount;
+                    $allPayments[$i]->accumulated_amount = $accumulatedAmount;
+                    $allPayments[$i]->save();
+                }
+            } else {
+                // Si no encontramos el pago, actualizamos normalmente
+                $payment->update([
+                    'amount' => $request->amount,
+                    'payment_method' => $request->payment_method,
+                    'payment_date' => $request->payment_date ?: now()->toDateString(),
+                    'notes' => $request->notes,
+                ]);
+            }
+        } else {
+            // Si no hay cambio en el monto, actualizamos normalmente
+            $payment->update([
+                'amount' => $request->amount,
+                'payment_method' => $request->payment_method,
+                'payment_date' => $request->payment_date ?: now()->toDateString(),
+                'notes' => $request->notes,
+            ]);
+        }
+
+        // El balance del crédito ya está ajustado con la diferencia calculada arriba
         $credit->balance -= $difference;
 
         // Verificar el estado del crédito
@@ -288,6 +376,16 @@ class PaymentController extends BaseController
         }
 
         $credit->save();
+
+        // Actualizar el collected_amount de la caja si existe y hubo cambio en el monto
+        if ($difference != 0 && $payment->cash_balance_id) {
+            $cashBalance = CashBalance::find($payment->cash_balance_id);
+            if ($cashBalance) {
+                $cashBalance->collected_amount += $difference;
+                $cashBalance->final_amount += $difference;
+                $cashBalance->save();
+            }
+        }
 
         $payment->load(['credit.client', 'receivedBy']);
 
@@ -306,6 +404,10 @@ class PaymentController extends BaseController
             return $this->sendError('No autorizado', 'Solo administradores pueden eliminar pagos', 403);
         }
 
+        // Guardar referencias antes de eliminar
+        $paymentAmount = $payment->amount;
+        $cashBalanceId = $payment->cash_balance_id;
+
         // Ajustar el balance del crédito
         $credit = $payment->credit;
         $credit->balance += $payment->amount;
@@ -316,9 +418,61 @@ class PaymentController extends BaseController
             $credit->completed_at = null;
         }
 
-        $credit->save();
+        // Obtener todos los pagos del crédito ordenados por fecha
+        $allPayments = $credit->payments()->orderBy('payment_date')->orderBy('id')->get();
 
-        $payment->delete();
+        // Encontrar el índice del pago a eliminar
+        $currentIndex = -1;
+        foreach ($allPayments as $index => $p) {
+            if ($p->id === $payment->id) {
+                $currentIndex = $index;
+                break;
+            }
+        }
+
+        // Actualizar los pagos posteriores para recalcular el monto acumulado
+        if ($currentIndex >= 0) {
+            // Guardar los IDs de los pagos posteriores que necesitan actualización
+            $paymentsToUpdate = [];
+            $baseAccumulated = $currentIndex > 0 ? $allPayments[$currentIndex - 1]->accumulated_amount : 0;
+
+            for ($i = $currentIndex + 1; $i < count($allPayments); $i++) {
+                $baseAccumulated += $allPayments[$i]->amount;
+                $paymentsToUpdate[] = [
+                    'id' => $allPayments[$i]->id,
+                    'accumulated_amount' => $baseAccumulated,
+                ];
+            }
+
+            // Guardar el crédito primero
+            $credit->save();
+
+            // Eliminar el pago
+            $payment->delete();
+
+            // Actualizar los pagos posteriores
+            foreach ($paymentsToUpdate as $updateData) {
+                $paymentToUpdate = Payment::find($updateData['id']);
+                if ($paymentToUpdate) {
+                    $paymentToUpdate->accumulated_amount = $updateData['accumulated_amount'];
+                    $paymentToUpdate->save();
+                }
+            }
+        } else {
+            // Si no encontramos el pago, eliminamos normalmente
+            $credit->save();
+            $payment->delete();
+        }
+
+        // Actualizar el collected_amount de la caja si existe
+        if ($cashBalanceId) {
+            $cashBalance = CashBalance::find($cashBalanceId);
+            if ($cashBalance) {
+                $cashBalance->collected_amount -= $paymentAmount;
+                $cashBalance->final_amount -= $paymentAmount;
+                $cashBalance->save();
+            }
+        }
 
         return $this->sendResponse([], 'Pago eliminado exitosamente');
     }

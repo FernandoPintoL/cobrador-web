@@ -24,24 +24,18 @@ return new class extends Migration
             $table->decimal('interest_rate', 5, 2)->default(0)->after('amount')->comment('Porcentaje de interés (ej: 20.00 para 20%)');
             $table->decimal('total_amount', 10, 2)->nullable()->after('interest_rate')->comment('Monto total con interés incluido');
             $table->decimal('installment_amount', 8, 2)->nullable()->after('balance')->comment('Monto de cada cuota');
-                // Fecha programada para la entrega del crédito
+            // Fecha programada para la entrega del crédito
             $table->datetime('scheduled_delivery_date')->nullable()->after('end_date');
-            
             // Usuario que aprobó la entrega (cobrador o manager)
             $table->foreignId('approved_by')->nullable()->constrained('users');
-            
             // Fecha cuando se aprobó para entrega
             $table->datetime('approved_at')->nullable()->after('approved_by');
-            
             // Fecha real de entrega al cliente
             $table->datetime('delivered_at')->nullable()->after('approved_at');
-            
             // Usuario que entregó el crédito al cliente
             $table->foreignId('delivered_by')->nullable()->constrained('users');
-            
             // Notas sobre la aprobación o entrega
             $table->text('delivery_notes')->nullable()->after('delivered_by');
-            
             // Motivo de rechazo si aplica
             $table->text('rejection_reason')->nullable()->after('delivery_notes');
             $table->timestamps();
@@ -55,4 +49,4 @@ return new class extends Migration
     {
         Schema::dropIfExists('credits');
     }
-}; 
+};

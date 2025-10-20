@@ -25,3 +25,9 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
+/ai_tests
+/.junie
+/.cursor
+/.claude
+/documentaciones
+/websocket-server

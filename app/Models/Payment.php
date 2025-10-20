@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -16,8 +15,8 @@ class Payment extends Model
         'client_id',
         'cobrador_id',
         'credit_id',
-        'cash_balance_id',
         'amount',
+        'accumulated_amount',
         'payment_date',
         'payment_method',
         'latitude',
@@ -26,38 +25,18 @@ class Payment extends Model
         'transaction_id',
         'installment_number',
         'received_by',
+        'cash_balance_id',
     ];
 
     protected $casts = [
-        'payment_date' => 'datetime',
-        'amount' => 'decimal:2',
-        'cash_balance_id' => 'integer',
-        'latitude' => 'decimal:8',
-        'longitude' => 'decimal:8',
+        'payment_date'       => 'datetime',
+        'amount'             => 'decimal:2',
+        'accumulated_amount' => 'decimal:2',
+        'cash_balance_id'    => 'integer',
+        'latitude'           => 'decimal:8',
+        'longitude'          => 'decimal:8',
         'installment_number' => 'integer',
     ];
-
-    /**
-     * Accessor: return 0 when installment_number is null.
-     */
-    public function getInstallmentNumberAttribute($value): int
-    {
-        return is_null($value) ? 0 : (int) $value;
-    }
-
-    /**
-     * Mutator: normalize values to integer or null.
-     */
-    public function setInstallmentNumberAttribute($value): void
-    {
-        if (is_null($value) || $value === '') {
-            $this->attributes['installment_number'] = null;
-
-            return;
-        }
-
-        $this->attributes['installment_number'] = (int) $value;
-    }
 
     /**
      * Get the client that made this payment.
@@ -110,13 +89,13 @@ class Payment extends Model
             return 0.0;
         }
 
-        $credit = $this->credit;
+        $credit            = $this->credit;
         $totalInstallments = $credit->calculateTotalInstallments();
         if ($totalInstallments <= 0) {
             return 0.0;
         }
 
-        $installmentAmount = $credit->installment_amount ?? $credit->calculateInstallmentAmount();
+        $installmentAmount       = $credit->installment_amount ?? $credit->calculateInstallmentAmount();
         $principalPerInstallment = $credit->amount ? ($credit->amount / $totalInstallments) : 0.0;
 
         // Proporción del pago correspondiente a principal según la composición de la cuota
@@ -148,7 +127,7 @@ class Payment extends Model
             return null;
         }
 
-        $credit = $this->credit;
+        $credit            = $this->credit;
         $installmentAmount = $credit->installment_amount ?? $credit->calculateInstallmentAmount();
 
         // Sum all payments that are associated to this credit and installment number
@@ -163,35 +142,9 @@ class Payment extends Model
     }
 
     /**
-     * Get the location as an array with latitude and longitude.
+     * Check if the payment has a valid location set.
      */
-    public function getLocationAttribute(): ?array
-    {
-        if ($this->latitude && $this->longitude) {
-            return [
-                'latitude' => (float) $this->latitude,
-                'longitude' => (float) $this->longitude,
-            ];
-        }
-
-        return null;
-    }
-
-    /**
-     * Set the location from an array with latitude and longitude.
-     */
-    public function setLocationAttribute($value): void
-    {
-        if (is_array($value) && isset($value['latitude']) && isset($value['longitude'])) {
-            $this->attributes['latitude'] = $value['latitude'];
-            $this->attributes['longitude'] = $value['longitude'];
-        }
-    }
-
-    /**
-     * Check if the payment has a location set.
-     */
-    public function hasLocation(): bool
+    public function hasValidLocation(): bool
     {
         return ! is_null($this->latitude) && ! is_null($this->longitude);
     }
@@ -208,6 +161,28 @@ class Payment extends Model
                 $credit = $payment->credit;
                 if ($credit) {
                     $credit->balance = $credit->balance - $payment->amount;
+
+                    // Actualizar el contador de cuotas pagadas si este pago completa una cuota
+                    if ($payment->installment_number) {
+                        $installmentAmount = $credit->installment_amount ?? $credit->calculateInstallmentAmount();
+
+                        // Verificar si con este pago se completa la cuota
+                        $totalPaid = $credit->payments()
+                            ->where('installment_number', $payment->installment_number)
+                            ->whereNotIn('status', ['cancelled', 'failed'])
+                            ->sum('amount');
+
+                        if ((float) $totalPaid >= (float) $installmentAmount) {
+                            // Esta cuota está completa, incrementar contador
+                            $credit->paid_installments = ($credit->paid_installments ?? 0) + 1;
+                        }
+                    }
+
+                    // Actualizar el total pagado
+                    if ($payment->status === 'completed') {
+                        $credit->total_paid = ($credit->total_paid ?? 0) + $payment->amount;
+                    }
+
                     $credit->save();
                 }
 
@@ -224,7 +199,7 @@ class Payment extends Model
             } catch (\Exception $e) {
                 Log::error('Error processing payment creation events', [
                     'payment_id' => $payment->id,
-                    'error' => $e->getMessage(),
+                    'error'      => $e->getMessage(),
                 ]);
             }
         });
@@ -233,14 +208,29 @@ class Payment extends Model
         static::updated(function ($payment) {
             try {
                 // Si el monto cambió, actualizar el balance del crédito
-                if ($payment->wasChanged('amount')) {
+                if ($payment->wasChanged('amount') || $payment->wasChanged('status')) {
                     $credit = $payment->credit;
                     if ($credit) {
-                        $oldAmount = $payment->getOriginal('amount');
-                        $newAmount = $payment->amount;
+                        $oldAmount  = $payment->getOriginal('amount');
+                        $newAmount  = $payment->amount;
                         $difference = $newAmount - $oldAmount;
 
                         $credit->balance = $credit->balance - $difference;
+
+                        // Actualizar el total pagado si el estado es completado
+                        if ($payment->status === 'completed') {
+                            if ($payment->wasChanged('status') && $payment->getOriginal('status') !== 'completed') {
+                                // Cambió de otro estado a completado
+                                $credit->total_paid = ($credit->total_paid ?? 0) + $newAmount;
+                            } elseif ($payment->wasChanged('amount') && ! $payment->wasChanged('status')) {
+                                // Solo cambió el monto, pero ya era completado
+                                $credit->total_paid = ($credit->total_paid ?? 0) + $difference;
+                            }
+                        } else if ($payment->wasChanged('status') && $payment->getOriginal('status') === 'completed') {
+                            // Cambió de completado a otro estado
+                            $credit->total_paid = max(0, ($credit->total_paid ?? 0) - $oldAmount);
+                        }
+
                         $credit->save();
                     }
                 }
@@ -252,7 +242,48 @@ class Payment extends Model
             } catch (\Exception $e) {
                 Log::error('Error processing payment update events', [
                     'payment_id' => $payment->id,
-                    'error' => $e->getMessage(),
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+        });
+
+        // Evento cuando se elimina un pago
+        static::deleted(function ($payment) {
+            try {
+                $credit = $payment->credit;
+                if ($credit) {
+                    // Si el pago eliminado estaba asociado a una cuota, verificar si esa cuota ahora queda incompleta
+                    if ($payment->installment_number) {
+                        $installmentAmount = $credit->installment_amount ?? $credit->calculateInstallmentAmount();
+
+                        // Verificar el total pagado para esta cuota después de eliminar este pago
+                        $totalPaid = $credit->payments()
+                            ->where('installment_number', $payment->installment_number)
+                            ->whereNotIn('status', ['cancelled', 'failed'])
+                            ->sum('amount');
+
+                        // Si el total pagado ahora es menor que el monto de la cuota, decrementar el contador de cuotas pagadas
+                        if ((float) $totalPaid < (float) $installmentAmount && $credit->paid_installments > 0) {
+                            $credit->paid_installments = $credit->paid_installments - 1;
+                        }
+                    }
+
+                    // Actualizar el total pagado si el pago era completado
+                    if ($payment->status === 'completed') {
+                        $credit->total_paid = max(0, ($credit->total_paid ?? 0) - $payment->amount);
+                    }
+
+                    $credit->save();
+                }
+
+                // Recalcular categoría del cliente
+                if ($payment->client) {
+                    $payment->client->recalculateCategoryFromOverdues();
+                }
+            } catch (\Exception $e) {
+                Log::error('Error processing payment deletion events', [
+                    'payment_id' => $payment->id,
+                    'error'      => $e->getMessage(),
                 ]);
             }
         });

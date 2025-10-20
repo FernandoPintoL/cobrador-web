@@ -1,8 +1,7 @@
 <?php
-
 namespace App\Http\Controllers\Api;
 
-use App\Events\CreditWaitingListUpdate;
+use App\Events\CreditCreated;
 use App\Models\Credit;
 use App\Models\InterestRate;
 use App\Models\User;
@@ -18,11 +17,8 @@ class CreditController extends BaseController
     {
         $query = Credit::with(['client', 'payments', 'createdBy']);
 
-        // Computed columns for response (simplified: only totals not related to installment counts)
-        $totalPaidSub = "(SELECT COALESCE(SUM(amount),0) FROM payments WHERE payments.credit_id = credits.id AND status = 'completed')";
-
-        $query->select('credits.*')
-            ->selectRaw("$totalPaidSub as total_paid");
+        // Ya no necesitamos la columna computada para total_paid, ahora usamos el campo de la tabla
+        $query->select('credits.*');
 
         // Visibilidad x rol
         $currentUser = Auth::user();
@@ -88,7 +84,7 @@ class CreditController extends BaseController
                     });
                 }
             })
-            // Frecuencia (uno o varios valores separados por coma)
+        // Frecuencia (uno o varios valores separados por coma)
             ->when($request->frequency, function ($query, $frequency) {
                 $values = is_array($frequency) ? $frequency : explode(',', (string) $frequency);
                 $values = array_filter(array_map('trim', $values));
@@ -96,7 +92,7 @@ class CreditController extends BaseController
                     $query->whereIn('frequency', $values);
                 }
             })
-            // Rango de fechas (inicio y fin)
+        // Rango de fechas (inicio y fin)
             ->when($request->start_date_from, function ($query, $date) {
                 $query->whereDate('start_date', '>=', $date);
             })
@@ -109,7 +105,7 @@ class CreditController extends BaseController
             ->when($request->end_date_to, function ($query, $date) {
                 $query->whereDate('end_date', '<=', $date);
             })
-            // Rango de montos (amount, total_amount, balance)
+        // Rango de montos (amount, total_amount, balance)
             ->when($request->amount_min, function ($query, $value) {
                 $query->where('amount', '>=', (float) $value);
             })
@@ -128,12 +124,12 @@ class CreditController extends BaseController
             ->when($request->balance_max, function ($query, $value) {
                 $query->where('balance', '<=', (float) $value);
             })
-            // Filtros por métricas calculadas (PostgreSQL-safe, usando expresiones/subconsultas)
-            ->when($request->total_paid_min, function ($q, $v) use ($totalPaidSub) {
-                $q->whereRaw("$totalPaidSub >= ?", [(float) $v]);
+        // Filtros por total pagado (ahora usando el campo de la tabla)
+            ->when($request->total_paid_min, function ($q, $v) {
+                $q->where("total_paid", '>=', (float) $v);
             })
-            ->when($request->total_paid_max, function ($q, $v) use ($totalPaidSub) {
-                $q->whereRaw("$totalPaidSub <= ?", [(float) $v]);
+            ->when($request->total_paid_max, function ($q, $v) {
+                $q->where("total_paid", '<=', (float) $v);
             });
 
         $perPage = (int) ($request->get('per_page', 15));
@@ -146,7 +142,7 @@ class CreditController extends BaseController
             $credit->setAttribute('completed_installments_count', $completedInstallments);
 
             $totalInstallments = (int) ($credit->total_installments ?? $credit->calculateTotalInstallments());
-            $pending = max($totalInstallments - $completedInstallments, 0);
+            $pending           = max($totalInstallments - $completedInstallments, 0);
             $credit->setAttribute('pending_installments', $pending);
 
             return $credit;
@@ -161,20 +157,20 @@ class CreditController extends BaseController
     public function store(Request $request)
     {
         $request->validate([
-            'client_id' => 'required|exists:users,id',
-            'cobrador_id' => 'nullable|exists:users,id', // Para que managers puedan especificar el cobrador
-            'amount' => 'required|numeric|min:0',
-            'balance' => 'required|numeric|min:0',
-            'frequency' => 'required|in:daily,weekly,biweekly,monthly',
-            'start_date' => 'required|date',
-            'end_date' => 'required|date|after:start_date',
-            'status' => 'in:pending_approval,waiting_delivery,active,completed,defaulted,cancelled',
-            'scheduled_delivery_date' => 'nullable|date|after_or_equal:today', // Permitir misma día si el manager lo autoriza
+            'client_id'                    => 'required|exists:users,id',
+            'cobrador_id'                  => 'nullable|exists:users,id', // Para que managers puedan especificar el cobrador
+            'amount'                       => 'required|numeric|min:0',
+            'balance'                      => 'required|numeric|min:0',
+            'frequency'                    => 'required|in:daily,weekly,biweekly,monthly',
+            'start_date'                   => 'required|date',
+            'end_date'                     => 'required|date|after:start_date',
+            'status'                       => 'in:pending_approval,waiting_delivery,active,completed,defaulted,cancelled',
+            'scheduled_delivery_date'      => 'nullable|date|after_or_equal:today', // Permitir misma día si el manager lo autoriza
             'immediate_delivery_requested' => 'sometimes|boolean',
-            'interest_rate_id' => 'nullable|exists:interest_rates,id',
-            'total_installments' => 'nullable|integer|min:1',
-            'latitude' => 'nullable|numeric|between:-90,90',
-            'longitude' => 'nullable|numeric|between:-180,180',
+            'interest_rate_id'             => 'nullable|exists:interest_rates,id',
+            'total_installments'           => 'nullable|integer|min:1',
+            'latitude'                     => 'nullable|numeric|between:-90,90',
+            'longitude'                    => 'nullable|numeric|between:-180,180',
         ]);
 
         $currentUser = Auth::user();
@@ -208,9 +204,9 @@ class CreditController extends BaseController
             // Los managers pueden crear créditos para:
             // 1. Clientes asignados directamente a ellos
             // 2. Clientes de cobradores bajo su supervisión
-            $isDirectlyAssigned = $client->assigned_manager_id === $currentUser->id;
+            $isDirectlyAssigned        = $client->assigned_manager_id === $currentUser->id;
             $isAssignedThroughCobrador = $client->assignedCobrador &&
-                $client->assignedCobrador->assigned_manager_id === $currentUser->id;
+            $client->assignedCobrador->assigned_manager_id === $currentUser->id;
 
             if ($targetCobrador) {
                 // Si especifica cobrador, debe estar asignado al manager
@@ -230,7 +226,7 @@ class CreditController extends BaseController
         }
         // Los admins pueden crear créditos para cualquier combinación cliente-cobrador
 
-        // 1) Reglas por ranking del cliente (A,B,C): y bloqueo total para categoría C
+                                                    // 1) Reglas por ranking del cliente (A,B,C): y bloqueo total para categoría C
         $clientCategory = $client->client_category; // Puede ser null
 
         // Validación de categoría desde el modelo
@@ -259,7 +255,7 @@ class CreditController extends BaseController
             }
             // Validar cantidad de créditos (pendientes/por entregar/activos)
             $engagedStatuses = ['pending_approval', 'waiting_delivery', 'active'];
-            $currentEngaged = Credit::where('client_id', $client->id)
+            $currentEngaged  = Credit::where('client_id', $client->id)
                 ->whereIn('status', $engagedStatuses)
                 ->count();
             if ($currentEngaged >= $limits['max_credits']) {
@@ -273,7 +269,7 @@ class CreditController extends BaseController
 
         // 2) Determinar el estado inicial del crédito, con fast-track para manager con cliente directo
         $isDirectClientOfManager = $currentUser->hasRole('manager') && ($client->assigned_manager_id === $currentUser->id);
-        $forceWaitingDelivery = false;
+        $forceWaitingDelivery    = false;
 
         $initialStatus = 'active'; // Por defecto para compatibilidad
         if ($request->has('status')) {
@@ -284,24 +280,24 @@ class CreditController extends BaseController
         }
         // Fast-track: si manager crea a cliente directo, saltar aprobación
         if ($isDirectClientOfManager) {
-            $initialStatus = 'waiting_delivery';
+            $initialStatus        = 'waiting_delivery';
             $forceWaitingDelivery = true;
         }
 
         // Determinar tasa de interés según rol y parámetros
-        $interestRateId = null;
+        $interestRateId    = null;
         $interestRateValue = 0.0;
         if ($currentUser->hasRole('cobrador')) {
             $activeRate = InterestRate::getActive();
             if ($activeRate) {
-                $interestRateId = $activeRate->id;
+                $interestRateId    = $activeRate->id;
                 $interestRateValue = (float) $activeRate->rate;
             }
         } else {
             if ($request->filled('interest_rate_id')) {
                 $rateModel = InterestRate::find($request->interest_rate_id);
                 if ($rateModel) {
-                    $interestRateId = $rateModel->id;
+                    $interestRateId    = $rateModel->id;
                     $interestRateValue = (float) $rateModel->rate;
                 }
             } elseif ($request->filled('interest_rate')) {
@@ -310,25 +306,25 @@ class CreditController extends BaseController
                 // Fallback a la activa si existe
                 $activeRate = InterestRate::getActive();
                 if ($activeRate) {
-                    $interestRateId = $activeRate->id;
+                    $interestRateId    = $activeRate->id;
                     $interestRateValue = (float) $activeRate->rate;
                 }
             }
         }
 
         // Preparar fechas considerando fast-track
-        $startDate = $request->start_date;
-        $endDate = $request->end_date;
+        $startDate             = $request->start_date;
+        $endDate               = $request->end_date;
         $scheduledDeliveryDate = $request->scheduled_delivery_date;
         if ($forceWaitingDelivery) {
             $approvedAtNow = now();
-            $startDate = (clone $approvedAtNow)->addDay();
+            $startDate     = (clone $approvedAtNow)->addDay();
             // Ajustar end_date si no es posterior a start_date
             try {
-                $endDt = new \DateTime($endDate);
+                $endDt   = new \DateTime($endDate);
                 $startDt = new \DateTime($startDate);
                 if ($endDt <= $startDt) {
-                    $endDt = (clone $startDt)->modify('+30 days');
+                    $endDt   = (clone $startDt)->modify('+30 days');
                     $endDate = $endDt->format('Y-m-d');
                 }
             } catch (\Exception $e) {
@@ -338,23 +334,23 @@ class CreditController extends BaseController
         }
 
         $credit = Credit::create([
-            'client_id' => $request->client_id,
-            'created_by' => $currentUser->id,
-            'amount' => $request->amount,
-            'interest_rate_id' => $interestRateId,
-            'interest_rate' => $interestRateValue,
-            'total_amount' => $request->total_amount ?? $request->amount,
-            'balance' => $request->balance,
-            'installment_amount' => $request->installment_amount, // si no se envía, el modelo lo calculará
-            'total_installments' => $request->total_installments ?? 24,
-            'frequency' => $request->frequency,
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'status' => $initialStatus,
-            'scheduled_delivery_date' => $scheduledDeliveryDate, // Para managers
+            'client_id'                    => $request->client_id,
+            'created_by'                   => $currentUser->id,
+            'amount'                       => $request->amount,
+            'interest_rate_id'             => $interestRateId,
+            'interest_rate'                => $interestRateValue,
+            'total_amount'                 => $request->total_amount ?? $request->amount,
+            'balance'                      => $request->balance,
+            'installment_amount'           => $request->installment_amount, // si no se envía, el modelo lo calculará
+            'total_installments'           => $request->total_installments ?? 24,
+            'frequency'                    => $request->frequency,
+            'start_date'                   => $startDate,
+            'end_date'                     => $endDate,
+            'status'                       => $initialStatus,
+            'scheduled_delivery_date'      => $scheduledDeliveryDate, // Para managers
             'immediate_delivery_requested' => (bool) $request->boolean('immediate_delivery_requested'),
-            'latitude' => $request->latitude,
-            'longitude' => $request->longitude,
+            'latitude'                     => $request->latitude,
+            'longitude'                    => $request->longitude,
         ]);
 
         // Si se aplicó fast-track, setear aprobaciones automáticamente
@@ -369,7 +365,22 @@ class CreditController extends BaseController
 
         // Disparar evento si el crédito fue creado en lista de espera
         if ($initialStatus === 'pending_approval') {
-            //            event(new CreditWaitingListUpdate($credit, 'created', $currentUser));
+            // Determinar quién es el manager y el cobrador para las notificaciones
+            $cobrador = null;
+            $manager  = null;
+
+            if ($currentUser->hasRole('cobrador')) {
+                $cobrador = $currentUser;
+                $manager  = $currentUser->assignedManager; // El manager del cobrador
+            } elseif ($currentUser->hasRole('manager')) {
+                $manager  = $currentUser;
+                $cobrador = $client->assignedCobrador; // El cobrador asignado al cliente
+            }
+
+            // Disparar evento solo si tenemos los datos necesarios
+            if ($cobrador && $manager) {
+                event(new CreditCreated($credit, $manager, $cobrador));
+            }
         }
 
         $message = 'Crédito creado exitosamente';
@@ -380,147 +391,6 @@ class CreditController extends BaseController
         }
 
         return $this->sendResponse($credit, $message);
-    }
-
-    /**
-     * Store a credit directly in waiting list (for managers).
-     */
-    public function storeInWaitingList(Request $request)
-    {
-        $request->validate([
-            'client_id' => 'required|exists:users,id',
-            'cobrador_id' => 'required|exists:users,id',
-            'amount' => 'required|numeric|min:0',
-            'interest_rate' => 'nullable|numeric|min:0|max:100',
-            'interest_rate_id' => 'nullable|exists:interest_rates,id',
-            'frequency' => 'required|in:daily,weekly,biweekly,monthly',
-            'installment_amount' => 'nullable|numeric|min:0',
-            'start_date' => 'required|date',
-            'end_date' => 'required|date|after:start_date',
-            'scheduled_delivery_date' => 'nullable|date|after_or_equal:today',
-            'notes' => 'nullable|string|max:1000',
-        ]);
-
-        $currentUser = Auth::user();
-
-        // Solo managers y admins pueden usar este endpoint
-        if (! $currentUser->hasRole(['manager', 'admin'])) {
-            return $this->sendError('No autorizado', 'Solo managers y administradores pueden crear créditos en lista de espera', 403);
-        }
-
-        // Verificar que el cliente y cobrador existan y tengan los roles correctos
-        $client = User::findOrFail($request->client_id);
-        $cobrador = User::findOrFail($request->cobrador_id);
-
-        if (! $client->hasRole('client')) {
-            return $this->sendError('Cliente no válido', 'El usuario especificado no es un cliente', 400);
-        }
-
-        if (! $cobrador->hasRole('cobrador')) {
-            return $this->sendError('Cobrador no válido', 'El usuario especificado no es un cobrador', 400);
-        }
-
-        // Verificar permisos del manager
-        if ($currentUser->hasRole('manager')) {
-            // El cobrador debe estar asignado al manager
-            if ($cobrador->assigned_manager_id !== $currentUser->id) {
-                return $this->sendError('No autorizado', 'El cobrador no está asignado a tu gestión', 403);
-            }
-
-            // El cliente debe estar asignado al cobrador
-            if ($client->assigned_cobrador_id !== $cobrador->id) {
-                return $this->sendError('No autorizado', 'El cliente no está asignado al cobrador especificado', 403);
-            }
-        }
-
-        // Calcular valores derivados
-        $interestRateId = null;
-        $interestRate = 0.0;
-        if ($request->filled('interest_rate_id')) {
-            $rateModel = InterestRate::find($request->interest_rate_id);
-            if ($rateModel) {
-                $interestRateId = $rateModel->id;
-                $interestRate = (float) $rateModel->rate;
-            }
-        } elseif ($request->filled('interest_rate')) {
-            $interestRate = (float) $request->interest_rate;
-        } else {
-            $active = InterestRate::getActive();
-            if ($active) {
-                $interestRateId = $active->id;
-                $interestRate = (float) $active->rate;
-            }
-        }
-
-        $totalAmount = $request->amount * (1 + ($interestRate / 100));
-        $installmentAmount = $request->installment_amount ?? $this->calculateInstallmentAmount(
-            $totalAmount,
-            $request->frequency,
-            $request->start_date,
-            $request->end_date
-        );
-
-        $credit = Credit::create([
-            'client_id' => $request->client_id,
-            'created_by' => $currentUser->id,
-            'amount' => $request->amount,
-            'interest_rate_id' => $interestRateId,
-            'interest_rate' => $interestRate,
-            'total_amount' => $totalAmount,
-            'balance' => $totalAmount,
-            'installment_amount' => $installmentAmount,
-            'frequency' => $request->frequency,
-            'start_date' => $request->start_date,
-            'end_date' => $request->end_date,
-            'status' => 'pending_approval',
-            'scheduled_delivery_date' => $request->scheduled_delivery_date,
-            'delivery_notes' => $request->notes,
-        ]);
-
-        $credit->load(['client', 'createdBy']);
-
-        // Disparar evento para notificaciones
-        //        event(new CreditWaitingListUpdate($credit, 'created', $currentUser));
-
-        return $this->sendResponse([
-            'credit' => $credit,
-            'delivery_status' => $credit->getDeliveryStatusInfo(),
-            'cobrador' => [
-                'id' => $cobrador->id,
-                'name' => $cobrador->name,
-                'email' => $cobrador->email,
-                'phone' => $cobrador->phone,
-            ],
-        ], 'Crédito creado en lista de espera exitosamente');
-    }
-
-    /**
-     * Helper method to calculate installment amount based on frequency.
-     */
-    private function calculateInstallmentAmount(float $totalAmount, string $frequency, string $startDate, string $endDate): float
-    {
-        $start = new \DateTime($startDate);
-        $end = new \DateTime($endDate);
-        $interval = $start->diff($end);
-
-        switch ($frequency) {
-            case 'daily':
-                $totalPeriods = $interval->days;
-                break;
-            case 'weekly':
-                $totalPeriods = (int) floor($interval->days / 7);
-                break;
-            case 'biweekly':
-                $totalPeriods = (int) floor($interval->days / 14);
-                break;
-            case 'monthly':
-                $totalPeriods = ($interval->y * 12) + $interval->m;
-                break;
-            default:
-                $totalPeriods = 1;
-        }
-
-        return $totalPeriods > 0 ? (float) round($totalAmount / $totalPeriods, 2) : (float) $totalAmount;
     }
 
     /**
@@ -544,7 +414,7 @@ class CreditController extends BaseController
         $credit->setAttribute('completed_installments_count', $completedInstallments);
 
         $totalInstallments = (int) ($credit->total_installments ?? $credit->calculateTotalInstallments());
-        $pending = max($totalInstallments - $completedInstallments, 0);
+        $pending           = max($totalInstallments - $completedInstallments, 0);
         $credit->setAttribute('pending_installments', $pending);
 
         return $this->sendResponse($credit);
@@ -556,13 +426,13 @@ class CreditController extends BaseController
     public function update(Request $request, Credit $credit)
     {
         $request->validate([
-            'client_id' => 'required|exists:users,id',
-            'amount' => 'required|numeric|min:0',
-            'balance' => 'required|numeric|min:0',
-            'frequency' => 'required|in:daily,weekly,biweekly,monthly',
+            'client_id'  => 'required|exists:users,id',
+            'amount'     => 'required|numeric|min:0',
+            'balance'    => 'required|numeric|min:0',
+            'frequency'  => 'required|in:daily,weekly,biweekly,monthly',
             'start_date' => 'required|date',
-            'end_date' => 'required|date|after:start_date',
-            'status' => 'in:active,completed,defaulted,cancelled',
+            'end_date'   => 'required|date|after:start_date',
+            'status'     => 'in:active,completed,defaulted,cancelled',
         ]);
 
         $currentUser = Auth::user();
@@ -594,13 +464,13 @@ class CreditController extends BaseController
         }
 
         $credit->update([
-            'client_id' => $request->client_id,
-            'amount' => $request->amount,
-            'balance' => $request->balance,
-            'frequency' => $request->frequency,
+            'client_id'  => $request->client_id,
+            'amount'     => $request->amount,
+            'balance'    => $request->balance,
+            'frequency'  => $request->frequency,
             'start_date' => $request->start_date,
-            'end_date' => $request->end_date,
-            'status' => $request->status,
+            'end_date'   => $request->end_date,
+            'status'     => $request->status,
         ]);
 
         $credit->load(['client', 'payments', 'createdBy']);
@@ -646,7 +516,7 @@ class CreditController extends BaseController
             }
         } elseif ($currentUser->hasRole('manager')) {
             // El manager debe ser el asignado directo del cliente o el manager del cobrador asignado al cliente
-            $isDirect = $client->assigned_manager_id === $currentUser->id;
+            $isDirect      = $client->assigned_manager_id === $currentUser->id;
             $isViaCobrador = $client->assigned_cobrador_id && User::where('id', $client->assigned_cobrador_id)
                 ->where('assigned_manager_id', $currentUser->id)
                 ->exists();
@@ -705,7 +575,7 @@ class CreditController extends BaseController
             $completedInstallments = (int) $credit->getCompletedInstallmentsCount();
             $credit->setAttribute('completed_installments_count', $completedInstallments);
             $totalInstallments = (int) ($credit->total_installments ?? $credit->calculateTotalInstallments());
-            $pending = max($totalInstallments - $completedInstallments, 0);
+            $pending           = max($totalInstallments - $completedInstallments, 0);
             $credit->setAttribute('pending_installments', $pending);
 
             return $credit;
@@ -728,7 +598,8 @@ class CreditController extends BaseController
             }
         }
 
-        $remaining = $credit->getRemainingInstallments();
+        // Usando getPendingInstallments en lugar de getRemainingInstallments que fue eliminado
+        $remaining = $credit->getPendingInstallments();
 
         return $this->sendResponse(['remaining_installments' => $remaining]);
     }
@@ -812,7 +683,7 @@ class CreditController extends BaseController
             $completedInstallments = (int) $credit->getCompletedInstallmentsCount();
             $credit->setAttribute('completed_installments_count', $completedInstallments);
             $totalInstallments = (int) ($credit->total_installments ?? $credit->calculateTotalInstallments());
-            $pending = max($totalInstallments - $completedInstallments, 0);
+            $pending           = max($totalInstallments - $completedInstallments, 0);
             $credit->setAttribute('pending_installments', $pending);
 
             return $credit;
@@ -844,11 +715,11 @@ class CreditController extends BaseController
         }
 
         $stats = [
-            'total_credits' => Credit::whereHas('client', function ($q) use ($cobrador) {
+            'total_credits'     => Credit::whereHas('client', function ($q) use ($cobrador) {
                 $q->where('assigned_cobrador_id', $cobrador->id);
             })->count(),
 
-            'active_credits' => Credit::whereHas('client', function ($q) use ($cobrador) {
+            'active_credits'    => Credit::whereHas('client', function ($q) use ($cobrador) {
                 $q->where('assigned_cobrador_id', $cobrador->id);
             })->where('status', 'active')->count(),
 
@@ -860,11 +731,11 @@ class CreditController extends BaseController
                 $q->where('assigned_cobrador_id', $cobrador->id);
             })->where('status', 'defaulted')->count(),
 
-            'total_amount' => Credit::whereHas('client', function ($q) use ($cobrador) {
+            'total_amount'      => Credit::whereHas('client', function ($q) use ($cobrador) {
                 $q->where('assigned_cobrador_id', $cobrador->id);
             })->sum('amount'),
 
-            'total_balance' => Credit::whereHas('client', function ($q) use ($cobrador) {
+            'total_balance'     => Credit::whereHas('client', function ($q) use ($cobrador) {
                 $q->where('assigned_cobrador_id', $cobrador->id);
             })->sum('balance'),
         ];
@@ -903,12 +774,12 @@ class CreditController extends BaseController
         $allClientIds = array_unique(array_merge($directClientIds, $cobradorClientIds));
         // Estadísticas
         $stats = [
-            'total_credits' => Credit::whereIn('client_id', $allClientIds)->count(),
-            'active_credits' => Credit::whereIn('client_id', $allClientIds)->where('status', 'active')->count(),
+            'total_credits'     => Credit::whereIn('client_id', $allClientIds)->count(),
+            'active_credits'    => Credit::whereIn('client_id', $allClientIds)->where('status', 'active')->count(),
             'completed_credits' => Credit::whereIn('client_id', $allClientIds)->where('status', 'completed')->count(),
             'defaulted_credits' => Credit::whereIn('client_id', $allClientIds)->where('status', 'defaulted')->count(),
-            'total_amount' => Credit::whereIn('client_id', $allClientIds)->sum('amount'),
-            'total_balance' => Credit::whereIn('client_id', $allClientIds)->sum('balance'),
+            'total_amount'      => Credit::whereIn('client_id', $allClientIds)->sum('amount'),
+            'total_balance'     => Credit::whereIn('client_id', $allClientIds)->sum('balance'),
         ];
 
         return $this->sendResponse($stats, "Estadísticas de créditos del manager {$manager->name} obtenidas exitosamente");
@@ -935,7 +806,7 @@ class CreditController extends BaseController
         $query->where(function ($q) {
             // Créditos vencidos (fecha de fin pasada)
             $q->where('end_date', '<', now())
-                // O créditos que vencen en los próximos 7 días
+            // O créditos que vencen en los próximos 7 días
                 ->orWhere('end_date', '<=', now()->addDays(7));
         });
 
@@ -956,20 +827,20 @@ class CreditController extends BaseController
                 'error' => 'Usuario no autenticado',
                 'debug' => [
                     'auth_user' => null,
-                    'headers' => $request->headers->all(),
+                    'headers'   => $request->headers->all(),
                 ],
             ], 401);
         }
 
         $debugInfo = [
             'authenticated_user' => [
-                'id' => $currentUser->id,
-                'name' => $currentUser->name,
+                'id'    => $currentUser->id,
+                'name'  => $currentUser->name,
                 'email' => $currentUser->email,
                 'roles' => $currentUser->roles->pluck('name')->toArray(),
             ],
-            'request_params' => $request->all(),
-            'is_cobrador' => $currentUser->hasRole('cobrador'),
+            'request_params'     => $request->all(),
+            'is_cobrador'        => $currentUser->hasRole('cobrador'),
         ];
 
         if (! $currentUser->hasRole('cobrador')) {
@@ -997,31 +868,31 @@ class CreditController extends BaseController
 
         $debugInfo['query_results'] = [
             'total_found' => $credits->count(),
-            'credits' => $credits->map(function ($credit) use ($currentUser) {
+            'credits'     => $credits->map(function ($credit) use ($currentUser) {
                 return [
-                    'id' => $credit->id,
-                    'client_name' => $credit->client->name,
-                    'amount' => $credit->amount,
-                    'status' => $credit->status,
-                    'created_by' => $credit->created_by,
-                    'created_by_name' => $credit->createdBy->name ?? 'N/A',
+                    'id'                          => $credit->id,
+                    'client_name'                 => $credit->client->name,
+                    'amount'                      => $credit->amount,
+                    'status'                      => $credit->status,
+                    'created_by'                  => $credit->created_by,
+                    'created_by_name'             => $credit->createdBy->name ?? 'N/A',
                     'client_assigned_cobrador_id' => $credit->client->assigned_cobrador_id,
-                    'matches_created_by' => $credit->created_by == $currentUser->id,
-                    'matches_assigned_client' => $credit->client->assigned_cobrador_id == $currentUser->id,
+                    'matches_created_by'          => $credit->created_by == $currentUser->id,
+                    'matches_assigned_client'     => $credit->client->assigned_cobrador_id == $currentUser->id,
                 ];
             }),
         ];
 
         // También obtener info adicional del cobrador
         $debugInfo['cobrador_info'] = [
-            'assigned_clients_count' => $currentUser->assignedClients()->count(),
-            'assigned_clients' => $currentUser->assignedClients()->pluck('name', 'id')->toArray(),
+            'assigned_clients_count'   => $currentUser->assignedClients()->count(),
+            'assigned_clients'         => $currentUser->assignedClients()->pluck('name', 'id')->toArray(),
             'credits_created_directly' => Credit::where('created_by', $currentUser->id)->count(),
         ];
 
         return response()->json([
             'success' => true,
-            'debug' => $debugInfo,
+            'debug'   => $debugInfo,
         ]);
     }
 }

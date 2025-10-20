@@ -36,4 +36,12 @@ class CashBalance extends Model
     {
         return $this->belongsTo(User::class, 'cobrador_id');
     }
+
+    /**
+     * Get the credits delivered using this cash balance.
+     */
+    public function credits()
+    {
+        return $this->hasMany(Credit::class, 'cash_balance_id');
+    }
 }

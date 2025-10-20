@@ -159,9 +159,10 @@ class CashBalanceController extends BaseController
             ->with(['client', 'credit'])
             ->get();
 
-        // Get credits created on this date by this cobrador
-        $credits = \App\Models\Credit::where('created_by', $cashBalance->cobrador_id)
-            ->whereDate('created_at', $cashBalance->date)
+        // Get credits delivered on this date by this cobrador
+        $credits = \App\Models\Credit::where('delivered_by', $cashBalance->cobrador_id)
+            ->whereDate('delivered_at', $cashBalance->date)
+            ->whereIn('status', ['active', 'completed'])
             ->with(['client'])
             ->get();
 
@@ -198,9 +199,10 @@ class CashBalanceController extends BaseController
             ->where('status', 'completed')
             ->sum('amount');
 
-        // Calculate lent amount from credits created on this date
-        $lentAmount = \App\Models\Credit::where('created_by', $request->cobrador_id)
-            ->whereDate('created_at', $request->date)
+        // Calculate lent amount from credits delivered on this date (only active credits)
+        $lentAmount = \App\Models\Credit::where('delivered_by', $request->cobrador_id)
+            ->whereDate('delivered_at', $request->date)
+            ->where('status', 'active')
             ->sum('amount');
 
         $cashBalance = CashBalance::create([
@@ -271,7 +273,7 @@ class CashBalanceController extends BaseController
 
         $date = $request->date ?? now()->toDateString();
 
-        // If an open cash balance exists, return it (idempotent)
+        // If an open cash balance exists for the same date, return it (idempotent)
         $existing = CashBalance::where('cobrador_id', $cobradorId)
             ->where('date', $date)
             ->where('status', 'open')
@@ -281,6 +283,35 @@ class CashBalanceController extends BaseController
             $existing->load(['cobrador']);
 
             return $this->sendResponse($existing, 'Caja ya abierta para esta fecha');
+        }
+
+        // BLOQUEO ESTRICTO: Verificar que NO existan cajas abiertas de fechas anteriores
+        $previousOpenBoxes = CashBalance::where('cobrador_id', $cobradorId)
+            ->where('date', '<', $date)
+            ->where('status', 'open')
+            ->orderBy('date', 'asc')
+            ->get();
+
+        if ($previousOpenBoxes->isNotEmpty()) {
+            $pendingDates = $previousOpenBoxes->pluck('date')->map(function ($d) {
+                return $d instanceof \Carbon\Carbon ? $d->format('d/m/Y') : $d;
+            })->toArray();
+
+            return $this->sendError(
+                'Cajas pendientes de cierre',
+                'Debes cerrar las cajas de las siguientes fechas antes de abrir una nueva: '.implode(', ', $pendingDates),
+                422,
+                ['pending_boxes' => $previousOpenBoxes->map(function ($box) {
+                    return [
+                        'id' => $box->id,
+                        'date' => $box->date,
+                        'initial_amount' => $box->initial_amount,
+                        'collected_amount' => $box->collected_amount,
+                        'lent_amount' => $box->lent_amount,
+                        'final_amount' => $box->final_amount,
+                    ];
+                })]
+            );
         }
 
         // Create new open cash balance
@@ -299,5 +330,95 @@ class CashBalanceController extends BaseController
         $cashBalance->load(['cobrador']);
 
         return $this->sendResponse($cashBalance, 'Caja abierta exitosamente');
+    }
+
+    /**
+     * Get current cash balance status for today.
+     * Returns whether there's an open cash balance for today and its details.
+     */
+    public function getCurrentStatus(Request $request)
+    {
+        $request->validate([
+            'cobrador_id' => 'nullable|exists:users,id',
+            'date' => 'nullable|date',
+        ]);
+
+        $currentUser = Auth::user();
+
+        // Determine cobrador
+        if ($currentUser instanceof \App\Models\User && $currentUser->hasRole('cobrador')) {
+            $cobradorId = $currentUser->id;
+        } else {
+            $cobradorId = $request->cobrador_id ?? null;
+            if (!$cobradorId) {
+                return $this->sendError('cobrador_id requerido', 'Debes especificar cobrador_id cuando no eres cobrador', 400);
+            }
+        }
+
+        $date = $request->date ?? now()->toDateString();
+
+        // Check if there's an open cash balance for today
+        $currentCashBalance = CashBalance::where('cobrador_id', $cobradorId)
+            ->where('date', $date)
+            ->where('status', 'open')
+            ->with('cobrador')
+            ->first();
+
+        // Check for pending closures (previous open boxes)
+        $pendingClosures = CashBalance::where('cobrador_id', $cobradorId)
+            ->where('date', '<', $date)
+            ->where('status', 'open')
+            ->orderBy('date', 'asc')
+            ->get();
+
+        return $this->sendResponse([
+            'is_open' => $currentCashBalance !== null,
+            'has_pending_closures' => $pendingClosures->isNotEmpty(),
+            'can_open_new' => $currentCashBalance === null && $pendingClosures->isEmpty(),
+            'current_cash_balance' => $currentCashBalance,
+            'pending_closures' => $pendingClosures,
+            'date' => $date,
+        ], 'Estado de caja obtenido exitosamente');
+    }
+
+    /**
+     * Get all pending (open) cash balances for a cobrador that should be closed.
+     * Returns all open boxes from previous dates (excluding today).
+     */
+    public function getPendingClosures(Request $request)
+    {
+        $request->validate([
+            'cobrador_id' => 'nullable|exists:users,id',
+        ]);
+
+        $currentUser = Auth::user();
+
+        // Determine cobrador
+        if ($currentUser instanceof \App\Models\User && $currentUser->hasRole('cobrador')) {
+            $cobradorId = $currentUser->id;
+        } else {
+            // admins or managers can check for specific cobrador
+            $cobradorId = $request->cobrador_id ?? null;
+            if (! $cobradorId) {
+                return $this->sendError('cobrador_id requerido', 'Debes especificar cobrador_id', 400);
+            }
+        }
+
+        $today = now()->toDateString();
+
+        // Get all open boxes from dates before today
+        $pendingBoxes = CashBalance::where('cobrador_id', $cobradorId)
+            ->where('date', '<', $today)
+            ->where('status', 'open')
+            ->with(['cobrador'])
+            ->orderBy('date', 'asc')
+            ->get();
+
+        return $this->sendResponse([
+            'count' => $pendingBoxes->count(),
+            'pending_boxes' => $pendingBoxes,
+            'has_pending' => $pendingBoxes->isNotEmpty(),
+            'oldest_pending_date' => $pendingBoxes->first()?->date,
+        ], 'Cajas pendientes de cierre obtenidas exitosamente');
     }
 }

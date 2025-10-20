@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Carbon\Carbon;
@@ -17,43 +16,48 @@ class Credit extends Model
         'client_id',
         'created_by',
         'amount',
-        'interest_rate_id',
-        'interest_rate',
-        'total_amount',
         'balance',
-        'installment_amount',
-        'total_installments',
+        'total_paid',
         'frequency',
         'start_date',
         'end_date',
         'status',
+        'interest_rate',
+        'total_amount',
+        'installment_amount',
         'scheduled_delivery_date',
-        'immediate_delivery_requested',
         'approved_by',
         'approved_at',
         'delivered_at',
         'delivered_by',
         'delivery_notes',
         'rejection_reason',
+        'interest_rate_id',
+        'total_installments',
+        'paid_installments',
         'latitude',
         'longitude',
+        'immediate_delivery_requested',
+        'cash_balance_id',
     ];
 
     protected $casts = [
-        'start_date' => 'date',
-        'end_date' => 'date',
-        'scheduled_delivery_date' => 'datetime',
+        'start_date'                   => 'date',
+        'end_date'                     => 'date',
+        'scheduled_delivery_date'      => 'datetime',
         'immediate_delivery_requested' => 'boolean',
-        'approved_at' => 'datetime',
-        'delivered_at' => 'datetime',
-        'amount' => 'decimal:2',
-        'interest_rate' => 'decimal:2',
-        'total_amount' => 'decimal:2',
-        'balance' => 'decimal:2',
-        'installment_amount' => 'decimal:2',
-        'total_installments' => 'integer',
-        'latitude' => 'decimal:8',
-        'longitude' => 'decimal:8',
+        'approved_at'                  => 'datetime',
+        'delivered_at'                 => 'datetime',
+        'amount'                       => 'decimal:2',
+        'total_paid'                   => 'decimal:2',
+        'interest_rate'                => 'decimal:2',
+        'total_amount'                 => 'decimal:2',
+        'balance'                      => 'decimal:2',
+        'installment_amount'           => 'decimal:2',
+        'total_installments'           => 'integer',
+        'paid_installments'            => 'integer',
+        'latitude'                     => 'decimal:8',
+        'longitude'                    => 'decimal:8',
     ];
 
     /**
@@ -97,6 +101,14 @@ class Credit extends Model
     }
 
     /**
+     * Get the cash balance associated with this credit delivery.
+     */
+    public function cashBalance(): BelongsTo
+    {
+        return $this->belongsTo(CashBalance::class, 'cash_balance_id');
+    }
+
+    /**
      * Get the payments for this credit.
      */
     public function payments(): HasMany
@@ -113,15 +125,6 @@ class Credit extends Model
     }
 
     /**
-     * Get the remaining installments for this credit.
-     */
-    public function getRemainingInstallments(): int
-    {
-        // Mantener compatibilidad: usar el mismo cálculo que getPendingInstallments
-        return $this->getPendingInstallments();
-    }
-
-    /**
      * Calculate the total number of installments based on frequency and dates.
      */
     public function calculateTotalInstallments(): int
@@ -133,7 +136,7 @@ class Credit extends Model
 
         // Fallback al cálculo por fechas/frecuencia para compatibilidad
         $startDate = Carbon::parse($this->start_date);
-        $endDate = Carbon::parse($this->end_date);
+        $endDate   = Carbon::parse($this->end_date);
 
         switch ($this->frequency) {
             case 'daily':
@@ -165,9 +168,42 @@ class Credit extends Model
     public function calculateInstallmentAmount(): float
     {
         $totalInstallments = $this->calculateTotalInstallments();
-        $totalAmount = $this->total_amount ?? $this->calculateTotalAmount();
+        $totalAmount       = $this->total_amount ?? $this->calculateTotalAmount();
 
         return $totalInstallments > 0 ? $totalAmount / $totalInstallments : 0;
+    }
+
+    /**
+     * Calculate installment amount based on frequency and date range (for controllers)
+     */
+    public static function calculateInstallmentAmountByFrequency(
+        float $totalAmount,
+        string $frequency,
+        string $startDate,
+        string $endDate
+    ): float {
+        $start    = new \DateTime($startDate);
+        $end      = new \DateTime($endDate);
+        $interval = $start->diff($end);
+
+        switch ($frequency) {
+            case 'daily':
+                $totalPeriods = $interval->days;
+                break;
+            case 'weekly':
+                $totalPeriods = (int) floor($interval->days / 7);
+                break;
+            case 'biweekly':
+                $totalPeriods = (int) floor($interval->days / 14);
+                break;
+            case 'monthly':
+                $totalPeriods = ($interval->y * 12) + $interval->m;
+                break;
+            default:
+                $totalPeriods = 1;
+        }
+
+        return $totalPeriods > 0 ? (float) round($totalAmount / $totalPeriods, 2) : (float) $totalAmount;
     }
 
     /**
@@ -178,17 +214,6 @@ class Credit extends Model
         return $this->payments()
             ->where('status', 'completed')
             ->sum('amount');
-    }
-
-    /**
-     * Get current balance (remaining amount to pay)
-     */
-    public function getCurrentBalance(): float
-    {
-        $totalAmount = $this->total_amount ?? $this->calculateTotalAmount();
-        $paidAmount = $this->getTotalPaidAmount();
-
-        return max(0, $totalAmount - $paidAmount);
     }
 
     /**
@@ -208,9 +233,18 @@ class Credit extends Model
 
     /**
      * Count installments that are fully paid (sum of payments per installment >= installment_amount).
+     *
+     * Si existe el campo paid_installments, lo usa directamente para mejorar el rendimiento.
+     * Si no, realiza el cálculo detallado en base a los pagos registrados.
      */
     public function getCompletedInstallmentsCount(): int
     {
+        // Si tenemos el valor persistido en la DB, lo usamos directamente
+        if ($this->paid_installments !== null) {
+            return (int) $this->paid_installments;
+        }
+
+        // Método original para retrocompatibilidad
         $installmentAmount = $this->installment_amount ?? $this->calculateInstallmentAmount();
         if ($installmentAmount <= 0) {
             return 0;
@@ -239,7 +273,7 @@ class Credit extends Model
      */
     public function getExpectedInstallments(): int
     {
-        $startDate = Carbon::parse($this->start_date);
+        $startDate   = Carbon::parse($this->start_date);
         $currentDate = Carbon::now();
 
         if ($currentDate->lt($startDate)) {
@@ -266,7 +300,7 @@ class Credit extends Model
     public function isOverdue(): bool
     {
         $expectedInstallments = $this->getExpectedInstallments();
-        $completedPayments = $this->payments()->where('status', 'completed')->count();
+        $completedPayments    = $this->payments()->where('status', 'completed')->count();
 
         return $completedPayments < $expectedInstallments;
     }
@@ -281,8 +315,8 @@ class Credit extends Model
         }
 
         $expectedInstallments = $this->getExpectedInstallments();
-        $completedPayments = $this->payments()->where('status', 'completed')->count();
-        $overdueInstallments = $expectedInstallments - $completedPayments;
+        $completedPayments    = $this->payments()->where('status', 'completed')->count();
+        $overdueInstallments  = $expectedInstallments - $completedPayments;
 
         return $overdueInstallments * $this->installment_amount;
     }
@@ -292,39 +326,39 @@ class Credit extends Model
      */
     public function processPayment(float $paymentAmount, string $paymentType = 'regular'): array
     {
-        $currentBalance = $this->getCurrentBalance();
+        $currentBalance     = $this->balance;
         $regularInstallment = $this->installment_amount;
 
         // Determinar tipo de pago
         $result = [
-            'payment_amount' => $paymentAmount,
-            'regular_installment' => $regularInstallment,
-            'remaining_balance' => max(0, $currentBalance - $paymentAmount),
-            'type' => 'regular',
-            'message' => '',
+            'payment_amount'       => $paymentAmount,
+            'regular_installment'  => $regularInstallment,
+            'remaining_balance'    => max(0, $currentBalance - $paymentAmount),
+            'type'                 => 'regular',
+            'message'              => '',
             'installments_covered' => 0,
-            'excess_amount' => 0,
+            'excess_amount'        => 0,
         ];
 
         if ($paymentAmount > $currentBalance) {
             // Pago excesivo - paga todo el crédito
-            $result['type'] = 'full_payment';
-            $result['excess_amount'] = $paymentAmount - $currentBalance;
-            $result['remaining_balance'] = 0;
-            $result['message'] = "Pago completo del crédito. Exceso: {$result['excess_amount']} Bs.";
+            $result['type']                 = 'full_payment';
+            $result['excess_amount']        = $paymentAmount - $currentBalance;
+            $result['remaining_balance']    = 0;
+            $result['message']              = "Pago completo del crédito. Exceso: {$result['excess_amount']} Bs.";
             $result['installments_covered'] = $this->getPendingInstallments();
 
         } elseif ($paymentAmount >= $regularInstallment) {
             // Pago que cubre una o más cuotas
-            $installmentsCovered = floor($paymentAmount / $regularInstallment);
+            $installmentsCovered            = floor($paymentAmount / $regularInstallment);
             $result['installments_covered'] = $installmentsCovered;
-            $result['type'] = $installmentsCovered > 1 ? 'multiple_installments' : 'regular';
-            $result['message'] = "Pago cubre {$installmentsCovered} cuota(s).";
+            $result['type']                 = $installmentsCovered > 1 ? 'multiple_installments' : 'regular';
+            $result['message']              = "Pago cubre {$installmentsCovered} cuota(s).";
 
         } else {
             // Pago parcial
-            $result['type'] = 'partial';
-            $result['message'] = 'Pago parcial. Falta: '.($regularInstallment - $paymentAmount).' Bs para completar la cuota.';
+            $result['type']    = 'partial';
+            $result['message'] = 'Pago parcial. Falta: ' . ($regularInstallment - $paymentAmount) . ' Bs para completar la cuota.';
         }
 
         return $result;
@@ -335,8 +369,8 @@ class Credit extends Model
      */
     public function getPaymentSchedule(): array
     {
-        $schedule = [];
-        $startDate = Carbon::parse($this->start_date);
+        $schedule          = [];
+        $startDate         = Carbon::parse($this->start_date);
         $totalInstallments = $this->calculateTotalInstallments();
         $installmentAmount = $this->installment_amount;
 
@@ -383,9 +417,9 @@ class Credit extends Model
 
             $schedule[] = [
                 'installment_number' => $i + 1,
-                'due_date' => $currentDueDate->format('Y-m-d'),
-                'amount' => $installmentAmount,
-                'status' => 'pending', // Se puede actualizar con pagos reales
+                'due_date'           => $currentDueDate->format('Y-m-d'),
+                'amount'             => $installmentAmount,
+                'status'             => 'pending', // Se puede actualizar con pagos reales
             ];
 
             // Para pagos diarios, avanzar al siguiente día para la próxima iteración
@@ -492,7 +526,7 @@ class Credit extends Model
                 } catch (\Exception $e) {
                     Log::error('Error dispatching CreditRequiresAttention event', [
                         'credit_id' => $credit->id,
-                        'error' => $e->getMessage(),
+                        'error'     => $e->getMessage(),
                     ]);
                 }
             }
@@ -513,11 +547,11 @@ class Credit extends Model
         }
 
         $this->update([
-            'status' => 'waiting_delivery',
-            'approved_by' => $approvedById,
-            'approved_at' => now(),
+            'status'                  => 'waiting_delivery',
+            'approved_by'             => $approvedById,
+            'approved_at'             => now(),
             'scheduled_delivery_date' => $scheduledDate,
-            'delivery_notes' => $notes,
+            'delivery_notes'          => $notes,
         ]);
 
         return true;
@@ -533,9 +567,9 @@ class Credit extends Model
         }
 
         $this->update([
-            'status' => 'rejected',
-            'approved_by' => $rejectedById,
-            'approved_at' => now(),
+            'status'           => 'rejected',
+            'approved_by'      => $rejectedById,
+            'approved_at'      => now(),
             'rejection_reason' => $reason,
         ]);
 
@@ -552,10 +586,10 @@ class Credit extends Model
         }
 
         $this->update([
-            'status' => 'active',
-            'delivered_by' => $deliveredById,
-            'delivered_at' => now(),
-            'delivery_notes' => $notes ? $this->delivery_notes."\n\nEntrega: ".$notes : $this->delivery_notes,
+            'status'         => 'active',
+            'delivered_by'   => $deliveredById,
+            'delivered_at'   => now(),
+            'delivery_notes' => $notes ? $this->delivery_notes . "\n\nEntrega: " . $notes : $this->delivery_notes,
         ]);
 
         return true;
@@ -617,15 +651,15 @@ class Credit extends Model
         }
 
         $oldDate = $this->scheduled_delivery_date;
-        $notes = $this->delivery_notes ?? '';
-        $notes .= "\n\nReprogramado por usuario {$rescheduledById}: ".$oldDate->format('Y-m-d H:i').' -> '.$newDate->format('Y-m-d H:i');
+        $notes   = $this->delivery_notes ?? '';
+        $notes .= "\n\nReprogramado por usuario {$rescheduledById}: " . $oldDate->format('Y-m-d H:i') . ' -> ' . $newDate->format('Y-m-d H:i');
         if ($reason) {
-            $notes .= "\nMotivo: ".$reason;
+            $notes .= "\nMotivo: " . $reason;
         }
 
         $this->update([
             'scheduled_delivery_date' => $newDate,
-            'delivery_notes' => $notes,
+            'delivery_notes'          => $notes,
         ]);
 
         return true;
@@ -693,21 +727,21 @@ class Credit extends Model
     public function getDeliveryStatusInfo(): array
     {
         return [
-            'status' => $this->status,
-            'is_pending_approval' => $this->status === 'pending_approval',
-            'is_waiting_delivery' => $this->status === 'waiting_delivery',
-            'is_active' => $this->status === 'active',
-            'is_ready_for_delivery' => $this->isReadyForDelivery(),
-            'is_overdue_for_delivery' => $this->isOverdueForDelivery(),
-            'days_until_delivery' => $this->getDaysUntilDelivery(),
+            'status'                    => $this->status,
+            'is_pending_approval'       => $this->status === 'pending_approval',
+            'is_waiting_delivery'       => $this->status === 'waiting_delivery',
+            'is_active'                 => $this->status === 'active',
+            'is_ready_for_delivery'     => $this->isReadyForDelivery(),
+            'is_overdue_for_delivery'   => $this->isOverdueForDelivery(),
+            'days_until_delivery'       => $this->getDaysUntilDelivery(),
             'days_overdue_for_delivery' => $this->getDaysOverdueForDelivery(),
-            'scheduled_delivery_date' => $this->scheduled_delivery_date,
-            'approved_by' => $this->approvedBy,
-            'approved_at' => $this->approved_at,
-            'delivered_by' => $this->deliveredBy,
-            'delivered_at' => $this->delivered_at,
-            'delivery_notes' => $this->delivery_notes,
-            'rejection_reason' => $this->rejection_reason,
+            'scheduled_delivery_date'   => $this->scheduled_delivery_date,
+            'approved_by'               => $this->approvedBy,
+            'approved_at'               => $this->approved_at,
+            'delivered_by'              => $this->deliveredBy,
+            'delivered_at'              => $this->delivered_at,
+            'delivery_notes'            => $this->delivery_notes,
+            'rejection_reason'          => $this->rejection_reason,
         ];
     }
 }

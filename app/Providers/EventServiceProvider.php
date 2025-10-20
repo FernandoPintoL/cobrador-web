@@ -1,6 +1,17 @@
 <?php
+
 namespace App\Providers;
 
+use App\Events\CreditApproved;
+use App\Events\CreditCreated;
+use App\Events\CreditDelivered;
+use App\Events\CreditRejected;
+use App\Events\PaymentCreated;
+use App\Listeners\SendCreditApprovedNotification;
+use App\Listeners\SendCreditCreatedNotification;
+use App\Listeners\SendCreditDeliveredNotification;
+use App\Listeners\SendCreditRejectedNotification;
+use App\Listeners\SendPaymentCreatedNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
 
 class EventServiceProvider extends ServiceProvider
@@ -10,20 +21,40 @@ class EventServiceProvider extends ServiceProvider
      *
      * @var array<class-string, array<int, class-string|string>>
      */
-    // NOTE: Event listeners for broadcasting / websocket have been
-    // intentionally disabled. If you later re-enable event-based
-    // notifications, restore the mappings below.
-    /*
     protected $listen = [
-        CreditRequiresAttention::class => [
-            SendCreditAttentionNotification::class,
+        // WebSocket Notifications - Ciclo de vida de créditos
+        CreditCreated::class => [
+            SendCreditCreatedNotification::class,
         ],
-        CreditWaitingListUpdate::class => [
-            SendCreditWaitingListNotification::class,
+        CreditApproved::class => [
+            SendCreditApprovedNotification::class,
         ],
-        PaymentReceived::class => [
-            SendPaymentReceivedNotification::class,
+        CreditRejected::class => [
+            SendCreditRejectedNotification::class,
+        ],
+        CreditDelivered::class => [
+            SendCreditDeliveredNotification::class,
+        ],
+
+        // WebSocket Notifications - Pagos
+        PaymentCreated::class => [
+            SendPaymentCreatedNotification::class,
         ],
     ];
-    */
+
+    /**
+     * Register any events for your application.
+     */
+    public function boot(): void
+    {
+        parent::boot();
+    }
+
+    /**
+     * Determine if events and listeners should be automatically discovered.
+     */
+    public function shouldDiscoverEvents(): bool
+    {
+        return false;
+    }
 }
