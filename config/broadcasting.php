@@ -15,7 +15,9 @@ return [
     |
     */
 
-    'default' => env('BROADCAST_DRIVER', 'null'),
+    // Si BROADCAST_DRIVER viene como cadena vacía (""), forzamos 'null' para evitar
+    // "Broadcast connection [] is not defined" en producción.
+    'default'     => env('BROADCAST_DRIVER') ?: 'null',
 
     /*
     |--------------------------------------------------------------------------
@@ -30,54 +32,54 @@ return [
 
     'connections' => [
 
-        'reverb' => [
-            'driver' => 'reverb',
-            'key' => env('REVERB_APP_KEY'),
-            'secret' => env('REVERB_APP_SECRET'),
-            'app_id' => env('REVERB_APP_ID'),
+        'reverb'    => [
+            'driver'  => 'reverb',
+            'key'     => env('REVERB_APP_KEY'),
+            'secret'  => env('REVERB_APP_SECRET'),
+            'app_id'  => env('REVERB_APP_ID'),
             'options' => [
-                'host' => env('REVERB_HOST', '127.0.0.1'),
-                'port' => env('REVERB_PORT', 8080),
+                'host'   => env('REVERB_HOST', '127.0.0.1'),
+                'port'   => env('REVERB_PORT', 8080),
                 'scheme' => env('REVERB_SCHEME', 'http'),
                 'useTLS' => env('REVERB_SCHEME', 'http') === 'https',
             ],
         ],
 
-        'pusher' => [
-            'driver' => 'pusher',
-            'key' => env('PUSHER_APP_KEY'),
-            'secret' => env('PUSHER_APP_SECRET'),
-            'app_id' => env('PUSHER_APP_ID'),
+        'pusher'    => [
+            'driver'  => 'pusher',
+            'key'     => env('PUSHER_APP_KEY'),
+            'secret'  => env('PUSHER_APP_SECRET'),
+            'app_id'  => env('PUSHER_APP_ID'),
             'options' => [
                 'cluster' => env('PUSHER_APP_CLUSTER'),
-                'useTLS' => true,
+                'useTLS'  => true,
             ],
         ],
 
-        'ably' => [
+        'ably'      => [
             'driver' => 'ably',
-            'key' => env('ABLY_KEY'),
+            'key'    => env('ABLY_KEY'),
         ],
 
-        'redis' => [
-            'driver' => 'redis',
+        'redis'     => [
+            'driver'     => 'redis',
             'connection' => 'default',
         ],
 
-        'log' => [
+        'log'       => [
             'driver' => 'log',
         ],
 
-        'null' => [
+        'null'      => [
             'driver' => 'null',
         ],
 
         // Configuración personalizada para WebSocket Node.js
         'websocket' => [
-            'driver' => 'websocket',
-            'host' => env('WEBSOCKET_HOST', '192.168.5.44'),
-            'port' => env('WEBSOCKET_PORT', 3001),
-            'secure' => env('WEBSOCKET_SECURE', false),
+            'driver'   => 'websocket',
+            'host'     => env('WEBSOCKET_HOST', '192.168.5.44'),
+            'port'     => env('WEBSOCKET_PORT', 3001),
+            'secure'   => env('WEBSOCKET_SECURE', false),
             'endpoint' => env('WEBSOCKET_ENDPOINT', '/notify'),
         ],
 
