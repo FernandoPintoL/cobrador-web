@@ -214,34 +214,11 @@ class CreditWaitingListController extends Controller
                 ], 422);
             }
 
-            // Ajustar cronograma: start_date = día siguiente de la aprobación
-            $approvedAt = $credit->approved_at ?? now();
-            $startDate = Carbon::parse($approvedAt)->addDay();
-            $credit->start_date = $startDate->toDateString();
-            // Asegurar que end_date sea posterior a start_date; si no, mover +30 días (fallback seguro)
-            if (! $credit->end_date || Carbon::parse($credit->end_date)->lte($startDate)) {
-                $credit->end_date = $startDate->copy()->addDays(30)->toDateString();
-            }
-
-            // Actualizar el campo immediate_delivery_requested
+            // Actualizar el campo immediate_delivery_requested para indicar urgencia
+            // NOTA: Este campo solo indica si el manager marcó como "entrega inmediata"
+            // NO significa que se entregue automáticamente - el cobrador debe confirmar la entrega física
             $credit->immediate_delivery_requested = $immediate;
-
             $credit->save();
-
-            // Si la fecha es ahora o en el pasado (o immediate=true), entregar de inmediato
-            $shouldDeliverNow = $immediate || ($scheduledDate && $scheduledDate <= now());
-            $deliveredNow = false;
-            if ($shouldDeliverNow) {
-                $deliveredNow = $credit->deliverToClient(Auth::id(), $request->notes);
-                if (! $deliveredNow) {
-                    DB::rollBack();
-
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'No se pudo entregar el crédito inmediatamente. Verifica su estado actual.',
-                    ], 422);
-                }
-            }
 
             DB::commit();
 
@@ -254,16 +231,12 @@ class CreditWaitingListController extends Controller
 
             // Disparar evento de aprobación
             try {
-                event(new CreditApproved($credit, $manager, $cobrador, $shouldDeliverNow));
+                // El crédito siempre queda en waiting_delivery después de aprobar
+                // El cobrador debe confirmar la entrega física para activarlo
+                event(new CreditApproved($credit, $manager, $cobrador, false));
 
                 // Enviar notificación WebSocket
-                $this->wsService->notifyCreditApproved($credit, $manager, $cobrador, $shouldDeliverNow);
-
-                // Si se entregó inmediatamente, disparar evento de entrega
-                if ($shouldDeliverNow && $deliveredNow) {
-                    event(new CreditDelivered($credit, $manager, $cobrador));
-                    $this->wsService->notifyCreditDelivered($credit, $manager, $cobrador);
-                }
+                $this->wsService->notifyCreditApproved($credit, $manager, $cobrador, false);
             } catch (\Exception $e) {
                 Log::error('Error sending credit approval notification', [
                     'credit_id' => $credit->id,
@@ -271,11 +244,13 @@ class CreditWaitingListController extends Controller
                 ]);
             }
 
+            $message = $immediate
+                ? 'Crédito aprobado para entrega inmediata. El cobrador debe confirmar la entrega física para activarlo.'
+                : 'Crédito aprobado para entrega programada. El cobrador debe confirmar la entrega física en la fecha indicada.';
+
             return response()->json([
                 'success' => true,
-                'message' => $shouldDeliverNow && $deliveredNow
-                    ? 'Crédito aprobado y entregado al cliente exitosamente'
-                    : 'Crédito aprobado para entrega exitosamente',
+                'message' => $message,
                 'data' => [
                     'credit' => $credit->fresh(),
                     'delivery_status' => $credit->fresh()->getDeliveryStatusInfo(),

@@ -8,6 +8,35 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Credit Model
+ *
+ * Flujo de estados del crédito:
+ *
+ * 1. PENDING_APPROVAL
+ *    - Cobrador solicita crédito
+ *    - Esperando aprobación del manager
+ *
+ * 2. WAITING_DELIVERY
+ *    - Manager aprobó el crédito
+ *    - Crédito esperando entrega física por el cobrador
+ *    - El campo `immediate_delivery_requested` indica urgencia (true = hoy, false = fecha programada)
+ *    - El campo `scheduled_delivery_date` indica cuándo debe entregarse
+ *
+ * 3. ACTIVE
+ *    - Cobrador confirmó la entrega física del dinero al cliente
+ *    - El cronograma de pagos se arma en este momento:
+ *      * delivered_at = momento de la entrega física
+ *      * start_date = día siguiente a delivered_at (primer día de pagos)
+ *      * end_date = calculado según total_installments y frequency
+ *    - Cliente comienza a pagar según el cronograma
+ *
+ * 4. COMPLETED / DEFAULTED / CANCELLED / REJECTED
+ *    - Estados finales del crédito
+ *
+ * IMPORTANTE: El cronograma de pagos se calcula al momento de la entrega física (ACTIVE),
+ * NO al momento de la aprobación (WAITING_DELIVERY).
+ */
 class Credit extends Model
 {
     use HasFactory;
@@ -578,6 +607,12 @@ class Credit extends Model
 
     /**
      * Deliver the credit to the client (activate it)
+     *
+     * Este método se ejecuta cuando el cobrador confirma físicamente la entrega del dinero al cliente.
+     * AQUÍ es donde se arma el cronograma de pagos:
+     * - delivered_at = ahora (momento de la entrega física)
+     * - start_date = día siguiente a la entrega (primer día de pagos)
+     * - end_date = calculado según el plazo del crédito
      */
     public function deliverToClient(int $deliveredById, ?string $notes = null): bool
     {
@@ -585,14 +620,94 @@ class Credit extends Model
             return false;
         }
 
+        $deliveredAt = now();
+
+        // El cronograma de pagos comienza el día siguiente a la entrega física
+        $startDate = Carbon::parse($deliveredAt)->addDay();
+
+        // Calcular end_date basado en total_installments y frequency
+        $endDate = $this->calculateEndDate($startDate);
+
         $this->update([
             'status'         => 'active',
             'delivered_by'   => $deliveredById,
-            'delivered_at'   => now(),
+            'delivered_at'   => $deliveredAt,
+            'start_date'     => $startDate->toDateString(),
+            'end_date'       => $endDate->toDateString(),
             'delivery_notes' => $notes ? $this->delivery_notes . "\n\nEntrega: " . $notes : $this->delivery_notes,
         ]);
 
         return true;
+    }
+
+    /**
+     * Calculate end_date based on start_date, total_installments and frequency
+     *
+     * IMPORTANTE: Usa la misma lógica que getPaymentSchedule() para calcular
+     * la fecha de la última cuota, considerando días hábiles (lunes a sábado).
+     */
+    private function calculateEndDate(Carbon $startDate): Carbon
+    {
+        $totalInstallments = $this->total_installments ?? 0;
+
+        if ($totalInstallments <= 0) {
+            // Fallback: 30 días por defecto
+            return $startDate->copy()->addDays(30);
+        }
+
+        // Simular el mismo algoritmo que getPaymentSchedule() para encontrar
+        // la fecha de la última cuota
+        $currentDueDate = $startDate->copy()->addDay();
+
+        for ($i = 0; $i < $totalInstallments; $i++) {
+            switch ($this->frequency) {
+                case 'daily':
+                    // Para pagos diarios, encontrar el siguiente día hábil (lunes a sábado)
+                    $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                    break;
+                case 'weekly':
+                    if ($i === 0) {
+                        // Primera cuota: siguiente día hábil después del start_date
+                        $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                    } else {
+                        // Siguientes cuotas: agregar una semana y ajustar si cae domingo
+                        $currentDueDate = $currentDueDate->copy()->addWeek();
+                        $currentDueDate = $this->adjustIfSunday($currentDueDate);
+                    }
+                    break;
+                case 'biweekly':
+                    if ($i === 0) {
+                        // Primera cuota: siguiente día hábil después del start_date
+                        $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                    } else {
+                        // Siguientes cuotas: agregar dos semanas y ajustar si cae domingo
+                        $currentDueDate = $currentDueDate->copy()->addWeeks(2);
+                        $currentDueDate = $this->adjustIfSunday($currentDueDate);
+                    }
+                    break;
+                case 'monthly':
+                    if ($i === 0) {
+                        // Primera cuota: siguiente día hábil después del start_date
+                        $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                    } else {
+                        // Siguientes cuotas: agregar un mes y ajustar si cae domingo
+                        $currentDueDate = $currentDueDate->copy()->addMonth();
+                        $currentDueDate = $this->adjustIfSunday($currentDueDate);
+                    }
+                    break;
+                default:
+                    // Fallback: días simples
+                    $currentDueDate->addDay();
+            }
+
+            // Para pagos diarios, avanzar al siguiente día para la próxima iteración
+            if ($this->frequency === 'daily' && $i < $totalInstallments - 1) {
+                $currentDueDate = $currentDueDate->copy()->addDay();
+            }
+        }
+
+        // La fecha de fin es la fecha de la última cuota
+        return $currentDueDate;
     }
 
     /**
