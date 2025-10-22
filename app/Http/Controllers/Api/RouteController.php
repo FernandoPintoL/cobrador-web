@@ -18,7 +18,7 @@ class RouteController extends BaseController
                 $query->where('cobrador_id', $cobradorId);
             })
             ->when($request->search, function ($query, $search) {
-                $query->where('name', 'like', "%{$search}%");
+                $query->where('name', 'ilike', "%{$search}%");
             })
             ->paginate(15);
 

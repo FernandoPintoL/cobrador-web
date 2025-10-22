@@ -8,7 +8,9 @@
       "mcp__laravel-boost__database-schema",
       "mcp__laravel-boost__list-routes",
       "mcp__laravel-boost__read-log-entries",
-      "mcp__laravel-boost__tinker"
+      "mcp__laravel-boost__tinker",
+      "Read(//d/**)",
+      "mcp__laravel-boost__last-error"
     ],
     "deny": [],
     "ask": []

@@ -8,11 +8,6 @@ use Spatie\Permission\Models\Role;
 
 uses(RefreshDatabase::class);
 
-function ensureRoleExists(string $name): Role
-{
-    return Role::findOrCreate($name);
-}
-
 it('asigna correctamente el numero de cuota llenando saldos parciales y continuando a la siguiente', function () {
     ensureRoleExists('admin');
     ensureRoleExists('client');

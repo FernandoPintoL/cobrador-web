@@ -207,17 +207,27 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard/recent-activity', [DashboardController::class, 'getRecentActivity'])->name('api.dashboard.recent-activity');
     Route::get('/dashboard/alerts', [DashboardController::class, 'getAlerts'])->name('api.dashboard.alerts');
     Route::get('/dashboard/performance-metrics', [DashboardController::class, 'getPerformanceMetrics'])->name('api.dashboard.performance-metrics');
+    Route::get('/dashboard/manager-stats', [DashboardController::class, 'getManagerStats'])->name('api.dashboard.manager-stats');
+    Route::get('/dashboard/financial-summary', [DashboardController::class, 'getFinancialSummary'])->name('api.dashboard.financial-summary');
+    Route::get('/dashboard/map-stats', [DashboardController::class, 'getMapStats'])->name('api.dashboard.map-stats');
 
     // Reportes
     Route::get('/reports/types', [ReportController::class, 'getReportTypes'])->name('api.reports.types');
     Route::get('/reports/payments', [ReportController::class, 'paymentsReport'])->name('api.reports.payments');
+    Route::get('/reports/payments/daily-summary', [ReportController::class, 'paymentsDailySummary'])->name('api.reports.payments.daily-summary');
     Route::get('/reports/credits', [ReportController::class, 'creditsReport'])->name('api.reports.credits');
+    Route::get('/reports/credits/attention-needed', [ReportController::class, 'creditsAttentionNeeded'])->name('api.reports.credits.attention-needed');
     Route::get('/reports/users', [ReportController::class, 'usersReport'])->name('api.reports.users');
+    Route::get('/reports/users/category-stats', [ReportController::class, 'usersCategoryStats'])->name('api.reports.users.category-stats');
     Route::get('/reports/balances', [ReportController::class, 'balancesReport'])->name('api.reports.balances');
+    Route::get('/reports/balances/reconciliation', [ReportController::class, 'balancesReconciliation'])->name('api.reports.balances.reconciliation');
     Route::get('/reports/overdue', [ReportController::class, 'overdueReport'])->name('api.reports.overdue');
     Route::get('/reports/performance', [ReportController::class, 'performanceReport'])->name('api.reports.performance');
     Route::get('/reports/cash-flow-forecast', [ReportController::class, 'cashFlowForecastReport'])->name('api.reports.cash-flow-forecast');
     Route::get('/reports/waiting-list', [ReportController::class, 'waitingListReport'])->name('api.reports.waiting-list');
+    Route::get('/reports/daily-activity', [ReportController::class, 'dailyActivityReport'])->name('api.reports.daily-activity');
+    Route::get('/reports/portfolio', [ReportController::class, 'portfolioReport'])->name('api.reports.portfolio');
+    Route::get('/reports/commissions', [ReportController::class, 'commissionsReport'])->name('api.reports.commissions');
 
     // WebSocket Notifications eliminadas
 });

@@ -9,11 +9,6 @@ use Spatie\Permission\Models\Role;
 
 uses(RefreshDatabase::class);
 
-function ensureRoleExists(string $name): Role
-{
-    return Role::findOrCreate($name);
-}
-
 it('requires an open cash box for cobrador when delivering a credit', function () {
     // Roles
     ensureRoleExists('cobrador');

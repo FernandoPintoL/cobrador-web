@@ -7,11 +7,6 @@ use Spatie\Permission\Models\Role;
 
 uses(RefreshDatabase::class);
 
-function ensureRole(string $name): Role
-{
-    return Role::findOrCreate($name);
-}
-
 it('users report includes summary counts and respects manager scoping', function () {
     ensureRole('admin');
     ensureRole('manager');

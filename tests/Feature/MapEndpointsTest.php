@@ -6,11 +6,6 @@ use Spatie\Permission\Models\Role;
 
 uses(RefreshDatabase::class);
 
-function ensureRole(string $name): Role
-{
-    return Role::findOrCreate($name);
-}
-
 it('map endpoints return successfully for manager without errors', function () {
     ensureRole('admin');
     ensureRole('manager');

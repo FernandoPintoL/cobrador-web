@@ -71,9 +71,9 @@ class CreditController extends BaseController
             })
             ->when($request->search, function ($query, $search) {
                 $query->whereHas('client', function ($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%");
-                    $q->orWhere('ci', 'like', "%{$search}%");
-                    $q->orWhere('phone', 'like', "%{$search}%");
+                    $q->where('name', 'ilike', "%{$search}%");
+                    $q->orWhere('ci', 'ilike', "%{$search}%");
+                    $q->orWhere('phone', 'ilike', "%{$search}%");
                 });
             })
             ->when($request->cobrador_id, function ($query, $cobradorId) {
@@ -636,9 +636,9 @@ class CreditController extends BaseController
             ->when($request->search, function ($query, $search) {
                 $query->whereHas('client', function ($q) use ($search) {
                     $q->where(function ($qq) use ($search) {
-                        $qq->where('name', 'like', "%{$search}%")
-                            ->orWhere('ci', 'like', "%{$search}%")
-                            ->orWhere('phone', 'like', "%{$search}%");
+                        $qq->where('name', 'ilike', "%{$search}%")
+                            ->orWhere('ci', 'ilike', "%{$search}%")
+                            ->orWhere('phone', 'ilike', "%{$search}%");
                     });
                 });
             })

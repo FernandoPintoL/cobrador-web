@@ -14,6 +14,7 @@ use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Maatwebsite\Excel\Facades\Excel;
 
 class ReportController extends Controller
@@ -441,6 +442,24 @@ class ReportController extends Controller
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
 
+        // Cache solo para formato JSON (5 minutos)
+        if ($request->input('format') === 'json') {
+            $cacheKey = $this->getReportCacheKey('overdue', $request);
+
+            return Cache::remember($cacheKey, 300, function () use ($request) {
+                return $this->generateOverdueReportData($request);
+            });
+        }
+
+        // Para otros formatos (PDF, HTML, Excel), ejecutar sin cache
+        return $this->generateOverdueReportData($request);
+    }
+
+    /**
+     * Generate overdue report data (extracted for caching)
+     */
+    private function generateOverdueReportData(Request $request)
+    {
         $query = Credit::with(['client', 'createdBy', 'deliveredBy', 'payments'])
             ->where('status', 'active')
             ->where('balance', '>', 0);
@@ -471,9 +490,29 @@ class ReportController extends Controller
                     ->orWhere('delivered_by', $currentUser->id);
             });
         } elseif ($currentUser->hasRole('manager')) {
-            $query->whereHas('createdBy', function ($q) use ($currentUser) {
-                $q->where('assigned_manager_id', $currentUser->id);
-            });
+            // Obtener clientes directos del manager
+            $directClientIds = User::whereHas('roles', function ($q) {
+                $q->where('name', 'client');
+            })
+                ->where('assigned_manager_id', $currentUser->id)
+                ->pluck('id')->toArray();
+
+            // Obtener cobradores bajo el manager
+            $cobradorIds = User::role('cobrador')
+                ->where('assigned_manager_id', $currentUser->id)
+                ->pluck('id')->toArray();
+
+            // Obtener clientes de esos cobradores
+            $cobradorClientIds = User::whereHas('roles', function ($q) {
+                $q->where('name', 'client');
+            })
+                ->whereIn('assigned_cobrador_id', $cobradorIds)
+                ->pluck('id')->toArray();
+
+            $allClientIds = array_unique(array_merge($directClientIds, $cobradorClientIds));
+
+            // Créditos de clientes del manager (directos o vía cobradores)
+            $query->whereIn('client_id', $allClientIds);
         }
 
         $credits = $query->orderBy('start_date', 'asc')->get();
@@ -507,7 +546,7 @@ class ReportController extends Controller
 
             // Añadir métricas calculadas al objeto
             $credit->days_overdue = $daysOverdue;
-            $credit->overdue_amount = $overdueAmount;
+            $credit->overdue_amount = round($overdueAmount, 2);
             $credit->overdue_installments = $expectedInstallments - $completedInstallments;
             $credit->completion_rate = $expectedInstallments > 0
                 ? round(($completedInstallments / $expectedInstallments) * 100, 2)
@@ -647,6 +686,24 @@ class ReportController extends Controller
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
 
+        // Cache solo para formato JSON (5 minutos)
+        if ($request->input('format') === 'json') {
+            $cacheKey = $this->getReportCacheKey('performance', $request);
+
+            return Cache::remember($cacheKey, 300, function () use ($request) {
+                return $this->generatePerformanceReportData($request);
+            });
+        }
+
+        // Para otros formatos (PDF, HTML, Excel), ejecutar sin cache
+        return $this->generatePerformanceReportData($request);
+    }
+
+    /**
+     * Generate performance report data (extracted for caching)
+     */
+    private function generatePerformanceReportData(Request $request)
+    {
         $startDate = $request->start_date ?? now()->subMonth()->startOfDay();
         $endDate = $request->end_date ?? now()->endOfDay();
 
@@ -1225,6 +1282,24 @@ class ReportController extends Controller
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
 
+        // Cache solo para formato JSON (5 minutos)
+        if ($request->input('format') === 'json') {
+            $cacheKey = $this->getReportCacheKey('daily_activity', $request);
+
+            return Cache::remember($cacheKey, 300, function () use ($request) {
+                return $this->generateDailyActivityReportData($request);
+            });
+        }
+
+        // Para otros formatos (PDF, HTML, Excel), ejecutar sin cache
+        return $this->generateDailyActivityReportData($request);
+    }
+
+    /**
+     * Generate daily activity report data (extracted for caching)
+     */
+    private function generateDailyActivityReportData(Request $request)
+    {
         $date = $request->date ?? now()->format('Y-m-d');
         $targetDate = \Carbon\Carbon::parse($date);
 
@@ -1413,6 +1488,24 @@ class ReportController extends Controller
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
 
+        // Cache solo para formato JSON (5 minutos)
+        if ($request->input('format') === 'json') {
+            $cacheKey = $this->getReportCacheKey('portfolio', $request);
+
+            return Cache::remember($cacheKey, 300, function () use ($request) {
+                return $this->generatePortfolioReportData($request);
+            });
+        }
+
+        // Para otros formatos (PDF, HTML, Excel), ejecutar sin cache
+        return $this->generatePortfolioReportData($request);
+    }
+
+    /**
+     * Generate portfolio report data (extracted for caching)
+     */
+    private function generatePortfolioReportData(Request $request)
+    {
         $includeCompleted = $request->include_completed ?? false;
 
         // Obtener créditos activos (y completados si se solicita)
@@ -1581,6 +1674,24 @@ class ReportController extends Controller
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
 
+        // Cache solo para formato JSON (5 minutos)
+        if ($request->input('format') === 'json') {
+            $cacheKey = $this->getReportCacheKey('commissions', $request);
+
+            return Cache::remember($cacheKey, 300, function () use ($request) {
+                return $this->generateCommissionsReportData($request);
+            });
+        }
+
+        // Para otros formatos (PDF, HTML, Excel), ejecutar sin cache
+        return $this->generateCommissionsReportData($request);
+    }
+
+    /**
+     * Generate commissions report data (extracted for caching)
+     */
+    private function generateCommissionsReportData(Request $request)
+    {
         $startDate = $request->start_date ?? now()->startOfMonth();
         $endDate = $request->end_date ?? now()->endOfMonth();
         $commissionRate = $request->commission_rate ?? 10; // 10% por defecto
@@ -1751,6 +1862,321 @@ class ReportController extends Controller
         $completedInstallments = $credit->getCompletedInstallmentsCount();
 
         return $completedInstallments < $expectedInstallments;
+    }
+
+    /**
+     * Generate cache key for report based on user and request parameters
+     */
+    private function getReportCacheKey(string $reportName, Request $request): string
+    {
+        $currentUser = Auth::user();
+        $userId = $currentUser ? $currentUser->id : 'guest';
+
+        // Include all request parameters except 'format' (no cachear PDF/Excel)
+        $params = $request->except(['format']);
+        ksort($params);
+
+        $paramsHash = md5(json_encode($params));
+
+        return "report_{$reportName}_{$userId}_{$paramsHash}";
+    }
+
+    /**
+     * Generate payments daily summary report (Resumen Diario de Pagos)
+     */
+    public function paymentsDailySummary(Request $request)
+    {
+        $request->validate([
+            'date' => 'nullable|date',
+        ]);
+
+        $date = $request->date ?? now()->format('Y-m-d');
+        $targetDate = \Carbon\Carbon::parse($date);
+
+        $currentUser = Auth::user();
+
+        // Obtener pagos del día
+        $query = Payment::with(['cobrador', 'credit.client'])
+            ->whereDate('payment_date', $targetDate);
+
+        // Apply role-based visibility
+        if ($currentUser->hasRole('cobrador')) {
+            $query->where('cobrador_id', $currentUser->id);
+        } elseif ($currentUser->hasRole('manager')) {
+            $cobradorIds = User::role('cobrador')
+                ->where('assigned_manager_id', $currentUser->id)
+                ->pluck('id');
+            $query->whereIn('cobrador_id', $cobradorIds);
+        }
+
+        $payments = $query->orderBy('payment_date', 'desc')->get();
+
+        // Agrupar por cobrador
+        $byCobrador = $payments->groupBy('cobrador_id')->map(function ($group) {
+            $cobrador = $group->first()->cobrador;
+
+            return [
+                'cobrador_id' => $cobrador->id,
+                'cobrador_name' => $cobrador->name,
+                'total_payments' => $group->count(),
+                'total_amount' => round($group->sum('amount'), 2),
+                'average_payment' => round($group->avg('amount'), 2),
+            ];
+        })->values();
+
+        $summary = [
+            'date' => $targetDate->format('Y-m-d'),
+            'day_name' => $targetDate->translatedFormat('l'),
+            'total_payments' => $payments->count(),
+            'total_amount' => round($payments->sum('amount'), 2),
+            'average_payment' => round($payments->avg('amount') ?? 0, 2),
+            'by_cobrador' => $byCobrador,
+            'total_cobradores_active' => $byCobrador->count(),
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'summary' => $summary,
+                'payments' => $payments,
+                'generated_at' => now(),
+                'generated_by' => $currentUser->name,
+            ],
+            'message' => 'Resumen diario de pagos obtenido exitosamente',
+        ]);
+    }
+
+    /**
+     * Generate credits attention needed report (Créditos que Requieren Atención)
+     */
+    public function creditsAttentionNeeded(Request $request)
+    {
+        $currentUser = Auth::user();
+
+        $query = Credit::with(['client', 'createdBy', 'deliveredBy', 'payments']);
+
+        // Apply role-based visibility
+        if ($currentUser->hasRole('cobrador')) {
+            $query->where(function ($q) use ($currentUser) {
+                $q->where('created_by', $currentUser->id)
+                    ->orWhere('delivered_by', $currentUser->id);
+            });
+        } elseif ($currentUser->hasRole('manager')) {
+            $query->whereHas('createdBy', function ($q) use ($currentUser) {
+                $q->where('assigned_manager_id', $currentUser->id);
+            });
+        }
+
+        $allCredits = $query->get();
+
+        // Clasificar créditos que requieren atención
+        $overdueCredits = $allCredits->filter(function ($credit) {
+            if ($credit->status !== 'active') {
+                return false;
+            }
+            $expectedInstallments = $credit->getExpectedInstallments();
+            $completedInstallments = $credit->getCompletedInstallmentsCount();
+
+            return $completedInstallments < $expectedInstallments;
+        })->map(function ($credit) {
+            $daysOverdue = $this->calculateDaysOverdue($credit);
+            $credit->days_overdue = $daysOverdue;
+            $credit->priority = $daysOverdue > 30 ? 'high' : ($daysOverdue > 7 ? 'medium' : 'low');
+
+            return $credit;
+        });
+
+        $highRiskCredits = $allCredits->filter(function ($credit) {
+            return $credit->status === 'active' &&
+                $credit->balance > 0 &&
+                $credit->client &&
+                $credit->client->client_category === 'C';
+        });
+
+        $pendingApprovals = $allCredits->filter(function ($credit) {
+            return $credit->status === 'pending_approval';
+        });
+
+        $waitingDelivery = $allCredits->filter(function ($credit) {
+            return $credit->status === 'waiting_delivery';
+        });
+
+        $summary = [
+            'total_attention_needed' => $overdueCredits->count() + $highRiskCredits->count() + $pendingApprovals->count() + $waitingDelivery->count(),
+            'overdue_count' => $overdueCredits->count(),
+            'high_risk_count' => $highRiskCredits->count(),
+            'pending_approval_count' => $pendingApprovals->count(),
+            'waiting_delivery_count' => $waitingDelivery->count(),
+            'by_priority' => [
+                'high' => $overdueCredits->where('priority', 'high')->count(),
+                'medium' => $overdueCredits->where('priority', 'medium')->count(),
+                'low' => $overdueCredits->where('priority', 'low')->count(),
+            ],
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'overdue_credits' => $overdueCredits->sortByDesc('days_overdue')->values(),
+                'high_risk_credits' => $highRiskCredits->values(),
+                'pending_approvals' => $pendingApprovals->values(),
+                'waiting_delivery' => $waitingDelivery->values(),
+                'summary' => $summary,
+                'generated_at' => now(),
+                'generated_by' => $currentUser->name,
+            ],
+            'message' => 'Créditos que requieren atención obtenidos exitosamente',
+        ]);
+    }
+
+    /**
+     * Generate users category statistics report (Estadísticas de Categorías de Clientes)
+     */
+    public function usersCategoryStats(Request $request)
+    {
+        $currentUser = Auth::user();
+
+        $query = User::whereHas('roles', function ($q) {
+            $q->where('name', 'client');
+        })->whereNotNull('client_category');
+
+        // Apply role-based visibility
+        if ($currentUser->hasRole('cobrador')) {
+            $query->where('assigned_cobrador_id', $currentUser->id);
+        } elseif ($currentUser->hasRole('manager')) {
+            $cobradorIds = User::role('cobrador')
+                ->where('assigned_manager_id', $currentUser->id)
+                ->pluck('id');
+
+            $query->where(function ($q) use ($currentUser, $cobradorIds) {
+                $q->where('assigned_manager_id', $currentUser->id)
+                    ->orWhereIn('assigned_cobrador_id', $cobradorIds);
+            });
+        }
+
+        $clients = $query->with(['assignedCobrador', 'credits'])->get();
+
+        // Estadísticas por categoría
+        $byCategory = $clients->groupBy('client_category')->map(function ($group, $category) {
+            $activeCredits = $group->flatMap->credits->where('status', 'active');
+            $completedCredits = $group->flatMap->credits->where('status', 'completed');
+
+            return [
+                'category' => $category,
+                'count' => $group->count(),
+                'percentage' => round(($group->count() / $group->count()) * 100, 2),
+                'active_credits' => $activeCredits->count(),
+                'completed_credits' => $completedCredits->count(),
+                'total_balance' => round($activeCredits->sum('balance'), 2),
+                'total_lent' => round($group->flatMap->credits->sum('amount'), 2),
+            ];
+        });
+
+        $totalClients = $clients->count();
+
+        // Recalcular porcentajes correctamente
+        $byCategory = $byCategory->map(function ($category) use ($totalClients) {
+            $category['percentage'] = $totalClients > 0
+                ? round(($category['count'] / $totalClients) * 100, 2)
+                : 0;
+
+            return $category;
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'categories' => $byCategory,
+                'total_clients' => $totalClients,
+                'summary' => [
+                    'category_A' => $byCategory->get('A', ['count' => 0])['count'],
+                    'category_B' => $byCategory->get('B', ['count' => 0])['count'],
+                    'category_C' => $byCategory->get('C', ['count' => 0])['count'],
+                ],
+                'generated_at' => now(),
+                'generated_by' => $currentUser->name,
+            ],
+            'message' => 'Estadísticas de categorías de clientes obtenidas exitosamente',
+        ]);
+    }
+
+    /**
+     * Generate balances reconciliation report (Conciliación de Efectivo)
+     */
+    public function balancesReconciliation(Request $request)
+    {
+        $request->validate([
+            'date' => 'nullable|date',
+        ]);
+
+        $date = $request->date ?? now()->format('Y-m-d');
+        $targetDate = \Carbon\Carbon::parse($date);
+
+        $currentUser = Auth::user();
+
+        $query = CashBalance::with(['cobrador', 'credits'])
+            ->whereDate('date', $targetDate);
+
+        // Apply role-based visibility
+        if ($currentUser->hasRole('cobrador')) {
+            $query->where('cobrador_id', $currentUser->id);
+        } elseif ($currentUser->hasRole('manager')) {
+            $query->whereHas('cobrador', function ($q) use ($currentUser) {
+                $q->where('assigned_manager_id', $currentUser->id);
+            });
+        }
+
+        $balances = $query->get();
+
+        // Calcular discrepancias
+        $reconciliationData = $balances->map(function ($balance) {
+            $expected = $balance->initial_amount + $balance->collected_amount - $balance->lent_amount;
+            $difference = $balance->final_amount - $expected;
+            $hasDiscrepancy = abs($difference) > 0.01;
+
+            return [
+                'balance_id' => $balance->id,
+                'cobrador' => [
+                    'id' => $balance->cobrador->id,
+                    'name' => $balance->cobrador->name,
+                ],
+                'date' => $balance->date->format('Y-m-d'),
+                'status' => $balance->status,
+                'initial_amount' => round($balance->initial_amount, 2),
+                'collected_amount' => round($balance->collected_amount, 2),
+                'lent_amount' => round($balance->lent_amount, 2),
+                'expected_final' => round($expected, 2),
+                'actual_final' => round($balance->final_amount, 2),
+                'difference' => round($difference, 2),
+                'has_discrepancy' => $hasDiscrepancy,
+                'discrepancy_type' => $difference > 0 ? 'surplus' : ($difference < 0 ? 'shortage' : 'none'),
+            ];
+        });
+
+        $summary = [
+            'date' => $targetDate->format('Y-m-d'),
+            'total_balances' => $balances->count(),
+            'total_with_discrepancies' => $reconciliationData->where('has_discrepancy', true)->count(),
+            'total_surplus' => round($reconciliationData->where('discrepancy_type', 'surplus')->sum('difference'), 2),
+            'total_shortage' => round(abs($reconciliationData->where('discrepancy_type', 'shortage')->sum('difference')), 2),
+            'net_difference' => round($reconciliationData->sum('difference'), 2),
+            'by_status' => [
+                'open' => $balances->where('status', 'open')->count(),
+                'closed' => $balances->where('status', 'closed')->count(),
+                'reconciled' => $balances->where('status', 'reconciled')->count(),
+            ],
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'reconciliation' => $reconciliationData->values(),
+                'summary' => $summary,
+                'generated_at' => now(),
+                'generated_by' => $currentUser->name,
+            ],
+            'message' => 'Conciliación de efectivo obtenida exitosamente',
+        ]);
     }
 
     /**

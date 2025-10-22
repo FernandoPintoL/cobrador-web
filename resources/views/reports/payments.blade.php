@@ -112,7 +112,7 @@
                 </td>
                 <td>
                     @if($payment->credit)
-                    Bs{{ number_format($payment->credit->getCurrentBalance(), 2) }}
+                    Bs{{ number_format($payment->credit->balance, 2) }}
                     @else
                     N/A
                     @endif

@@ -371,6 +371,428 @@ GET /api/cash-balances/cobrador/{cobrador_id}/summary
 Authorization: Bearer {token}
 ```
 
+## Dashboard
+
+### Obtener Estadísticas Generales
+```
+GET /api/dashboard/stats
+Authorization: Bearer {token}
+```
+
+### Obtener Estadísticas por Cobrador
+```
+GET /api/dashboard/stats-by-cobrador?cobrador_id=1
+Authorization: Bearer {token}
+```
+
+### Obtener Actividad Reciente
+```
+GET /api/dashboard/recent-activity?limit=10
+Authorization: Bearer {token}
+```
+
+### Obtener Alertas
+```
+GET /api/dashboard/alerts
+Authorization: Bearer {token}
+```
+
+### Obtener Métricas de Rendimiento
+```
+GET /api/dashboard/performance-metrics?cobrador_id=1&start_date=2024-01-01&end_date=2024-12-31
+Authorization: Bearer {token}
+```
+
+### Obtener Estadísticas del Manager
+```
+GET /api/dashboard/manager-stats?manager_id=1
+Authorization: Bearer {token}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "manager": {
+      "id": 1,
+      "name": "Manager Nombre"
+    },
+    "team_summary": {
+      "total_cobradores": 5,
+      "total_clients_team": 50,
+      "total_credits_team": 30,
+      "total_balance_team": 15000.00,
+      "today_collections_team": 2500.00,
+      "month_collections_team": 45000.00
+    },
+    "cobradores": [
+      {
+        "cobrador_id": 2,
+        "cobrador_name": "Cobrador Nombre",
+        "clients": 10,
+        "active_credits": 8,
+        "today_collections": 500.00,
+        "month_collections": 9000.00
+      }
+    ]
+  }
+}
+```
+
+### Obtener Resumen Financiero
+```
+GET /api/dashboard/financial-summary
+Authorization: Bearer {token}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "general": {
+      "total_lent": 100000.00,
+      "total_collected": 75000.00,
+      "active_balance": 25000.00,
+      "total_active_credits": 45,
+      "total_completed_credits": 120
+    },
+    "month": {
+      "month_lent": 15000.00,
+      "month_collected": 12000.00,
+      "month_credits_count": 10,
+      "month_payments_count": 150
+    },
+    "today": {
+      "today_collected": 2000.00,
+      "today_payments_count": 25,
+      "today_credits_delivered": 3
+    },
+    "cash": {
+      "total_cash_on_hand": 5000.00,
+      "open_cash_balances": 5,
+      "closed_cash_balances_today": 2
+    }
+  }
+}
+```
+
+### Obtener Estadísticas del Mapa
+```
+GET /api/dashboard/map-stats
+Authorization: Bearer {token}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "clients_with_location": 85,
+    "clients_without_location": 15,
+    "location_coverage_percentage": 85.00,
+    "clients_by_category": {
+      "A": 30,
+      "B": 40,
+      "C": 15
+    },
+    "clients_by_cobrador": [
+      {
+        "cobrador_id": 1,
+        "cobrador_name": "Juan Pérez",
+        "count": 25
+      }
+    ],
+    "routes": {
+      "total_routes": 10,
+      "active_routes": 8
+    }
+  }
+}
+```
+
+## Reportes
+
+### Obtener Tipos de Reportes
+```
+GET /api/reports/types
+Authorization: Bearer {token}
+```
+
+### Reporte de Pagos
+```
+GET /api/reports/payments?cobrador_id=1&client_id=1&start_date=2024-01-01&end_date=2024-12-31&format=json
+Authorization: Bearer {token}
+
+Parámetros:
+- cobrador_id (opcional): Filtrar por cobrador
+- client_id (opcional): Filtrar por cliente
+- credit_id (opcional): Filtrar por crédito
+- start_date (opcional): Fecha inicial
+- end_date (opcional): Fecha final
+- format (opcional): json|pdf|html|excel (default: json)
+```
+
+### Resumen Diario de Pagos
+```
+GET /api/reports/payments/daily-summary?date=2024-10-21
+Authorization: Bearer {token}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "summary": {
+      "date": "2024-10-21",
+      "day_name": "Lunes",
+      "total_payments": 45,
+      "total_amount": 12500.00,
+      "average_payment": 277.78,
+      "by_cobrador": [
+        {
+          "cobrador_id": 1,
+          "cobrador_name": "Juan Pérez",
+          "total_payments": 20,
+          "total_amount": 5000.00,
+          "average_payment": 250.00
+        }
+      ],
+      "total_cobradores_active": 3
+    },
+    "payments": []
+  }
+}
+```
+
+### Reporte de Créditos
+```
+GET /api/reports/credits?status=active&cobrador_id=1&start_date=2024-01-01&end_date=2024-12-31&format=json
+Authorization: Bearer {token}
+
+Parámetros:
+- status (opcional): active|completed|cancelled|pending_approval|waiting_delivery
+- cobrador_id (opcional): Filtrar por cobrador
+- client_id (opcional): Filtrar por cliente
+- start_date (opcional): Fecha inicial
+- end_date (opcional): Fecha final
+- format (opcional): json|pdf|html|excel (default: json)
+```
+
+### Créditos que Requieren Atención
+```
+GET /api/reports/credits/attention-needed
+Authorization: Bearer {token}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "overdue_credits": [
+      {
+        "id": 1,
+        "client": {...},
+        "days_overdue": 5,
+        "priority": "medium",
+        "balance": 1500.00
+      }
+    ],
+    "high_risk_credits": [],
+    "pending_approvals": [],
+    "waiting_delivery": [],
+    "summary": {
+      "total_attention_needed": 10,
+      "overdue_count": 5,
+      "high_risk_count": 2,
+      "pending_approval_count": 2,
+      "waiting_delivery_count": 1,
+      "by_priority": {
+        "high": 2,
+        "medium": 2,
+        "low": 1
+      }
+    }
+  }
+}
+```
+
+### Reporte de Usuarios/Clientes
+```
+GET /api/reports/users?role=client&assigned_cobrador_id=1&format=json
+Authorization: Bearer {token}
+
+Parámetros:
+- role (opcional): Filtrar por rol (client, cobrador, manager, admin)
+- assigned_cobrador_id (opcional): Filtrar por cobrador asignado
+- assigned_manager_id (opcional): Filtrar por manager asignado
+- client_category (opcional): A|B|C
+- format (opcional): json|pdf|html|excel (default: json)
+```
+
+### Estadísticas de Categorías de Clientes
+```
+GET /api/reports/users/category-stats
+Authorization: Bearer {token}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "categories": [
+      {
+        "category": "A",
+        "count": 30,
+        "percentage": 35.00,
+        "active_credits": 25,
+        "completed_credits": 50,
+        "total_balance": 15000.00,
+        "total_lent": 75000.00
+      }
+    ],
+    "total_clients": 85,
+    "summary": {
+      "category_A": 30,
+      "category_B": 40,
+      "category_C": 15
+    }
+  }
+}
+```
+
+### Reporte de Balances/Cajas
+```
+GET /api/reports/balances?cobrador_id=1&start_date=2024-01-01&end_date=2024-12-31&format=json
+Authorization: Bearer {token}
+
+Parámetros:
+- cobrador_id (opcional): Filtrar por cobrador
+- status (opcional): open|closed|reconciled
+- start_date (opcional): Fecha inicial
+- end_date (opcional): Fecha final
+- format (opcional): json|pdf|html|excel (default: json)
+```
+
+### Conciliación de Efectivo
+```
+GET /api/reports/balances/reconciliation?date=2024-10-21
+Authorization: Bearer {token}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "reconciliation": [
+      {
+        "balance_id": 1,
+        "cobrador": {
+          "id": 1,
+          "name": "Juan Pérez"
+        },
+        "date": "2024-10-21",
+        "status": "closed",
+        "initial_amount": 1000.00,
+        "collected_amount": 2500.00,
+        "lent_amount": 1500.00,
+        "expected_final": 2000.00,
+        "actual_final": 2000.00,
+        "difference": 0.00,
+        "has_discrepancy": false,
+        "discrepancy_type": "none"
+      }
+    ],
+    "summary": {
+      "date": "2024-10-21",
+      "total_balances": 5,
+      "total_with_discrepancies": 1,
+      "total_surplus": 50.00,
+      "total_shortage": 30.00,
+      "net_difference": 20.00,
+      "by_status": {
+        "open": 0,
+        "closed": 4,
+        "reconciled": 1
+      }
+    }
+  }
+}
+```
+
+### Reporte de Mora
+```
+GET /api/reports/overdue?cobrador_id=1&client_category=A&min_days_overdue=7&format=json
+Authorization: Bearer {token}
+
+Parámetros:
+- cobrador_id (opcional): Filtrar por cobrador
+- client_id (opcional): Filtrar por cliente
+- client_category (opcional): A|B|C
+- min_days_overdue (opcional): Mínimo de días de mora
+- max_days_overdue (opcional): Máximo de días de mora
+- min_overdue_amount (opcional): Mínimo monto en mora
+- format (opcional): json|pdf|html|excel (default: json)
+```
+
+### Reporte de Rendimiento
+```
+GET /api/reports/performance?cobrador_id=1&start_date=2024-01-01&end_date=2024-12-31&format=json
+Authorization: Bearer {token}
+
+Parámetros:
+- cobrador_id (opcional): Filtrar por cobrador
+- start_date (opcional): Fecha inicial
+- end_date (opcional): Fecha final
+- format (opcional): json|pdf|html|excel (default: json)
+```
+
+### Reporte de Flujo de Efectivo Proyectado
+```
+GET /api/reports/cash-flow-forecast?days=30&include_overdue=true&format=json
+Authorization: Bearer {token}
+
+Parámetros:
+- days (opcional): Número de días a proyectar (default: 30)
+- include_overdue (opcional): Incluir pagos vencidos (default: true)
+- format (opcional): json|pdf|html|excel (default: json)
+```
+
+### Reporte de Lista de Espera
+```
+GET /api/reports/waiting-list?status=pending_approval&format=json
+Authorization: Bearer {token}
+
+Parámetros:
+- status (opcional): pending_approval|waiting_delivery|all
+- format (opcional): json|pdf|html|excel (default: json)
+```
+
+### Reporte de Actividad Diaria
+```
+GET /api/reports/daily-activity?cobrador_id=1&date=2024-10-21&format=json
+Authorization: Bearer {token}
+
+Parámetros:
+- cobrador_id (opcional): Filtrar por cobrador
+- date (opcional): Fecha específica (default: hoy)
+- format (opcional): json|pdf|html|excel (default: json)
+```
+
+### Reporte de Cartera
+```
+GET /api/reports/portfolio?cobrador_id=1&format=json
+Authorization: Bearer {token}
+
+Parámetros:
+- cobrador_id (opcional): Filtrar por cobrador
+- format (opcional): json|pdf|html|excel (default: json)
+```
+
+### Reporte de Comisiones
+```
+GET /api/reports/commissions?cobrador_id=1&start_date=2024-01-01&end_date=2024-12-31&commission_rate=10&format=json
+Authorization: Bearer {token}
+
+Parámetros:
+- cobrador_id (opcional): Filtrar por cobrador
+- start_date (opcional): Fecha inicial (default: inicio del mes)
+- end_date (opcional): Fecha final (default: fin del mes)
+- commission_rate (opcional): Porcentaje de comisión (default: 10)
+- format (opcional): json|pdf|html|excel (default: json)
+```
+
 ## Notificaciones
 
 ### Listar Notificaciones

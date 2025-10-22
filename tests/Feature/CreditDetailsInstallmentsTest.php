@@ -9,11 +9,6 @@ use Spatie\Permission\Models\Role;
 
 uses(RefreshDatabase::class);
 
-function ensureRole(string $name): Role
-{
-    return Role::findOrCreate($name);
-}
-
 it('returns correct paid and pending installments in credit details', function () {
     // Roles
     ensureRole('admin');

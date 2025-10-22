@@ -15,6 +15,9 @@ pest()->extend(Tests\TestCase::class)
  // ->use(Illuminate\Foundation\Testing\RefreshDatabase::class)
     ->in('Feature');
 
+pest()->extend(Tests\TestCase::class)
+    ->in('Unit');
+
 /*
 |--------------------------------------------------------------------------
 | Expectations
@@ -41,7 +44,18 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * Ensure a role exists in the database (create if it doesn't exist)
+ */
+function ensureRole(string $name): \Spatie\Permission\Models\Role
 {
-    // ..
+    return \Spatie\Permission\Models\Role::findOrCreate($name);
+}
+
+/**
+ * Alias for ensureRole() for backwards compatibility
+ */
+function ensureRoleExists(string $name): \Spatie\Permission\Models\Role
+{
+    return ensureRole($name);
 }

@@ -38,30 +38,30 @@ class UserController extends BaseController
         if ($request->has('search')) {
             $query->where(function ($q) use ($request) {
                 $search = $request->search;
-                $q->where('id', 'like', "%{$search}%")
-                    ->orWhere('name', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%")
-                    ->orWhere('phone', 'like', "%{$search}%")
-                    ->orWhere('ci', 'like', "%{$search}%")
-                    ->orWhere('client_category', 'like', "%{$search}%");
+                $q->where('id', 'ilike', "%{$search}%")
+                    ->orWhere('name', 'ilike', "%{$search}%")
+                    ->orWhere('email', 'ilike', "%{$search}%")
+                    ->orWhere('phone', 'ilike', "%{$search}%")
+                    ->orWhere('ci', 'ilike', "%{$search}%")
+                    ->orWhere('client_category', 'ilike', "%{$search}%");
             });
         }
 
         // Filtros específicos por campo individual
         if ($request->has('name')) {
-            $query->where('name', 'like', "%{$request->name}%");
+            $query->where('name', 'ilike', "%{$request->name}%");
         }
 
         if ($request->has('email')) {
-            $query->where('email', 'like', "%{$request->email}%");
+            $query->where('email', 'ilike', "%{$request->email}%");
         }
 
         if ($request->has('phone')) {
-            $query->where('phone', 'like', "%{$request->phone}%");
+            $query->where('phone', 'ilike', "%{$request->phone}%");
         }
 
         if ($request->has('ci')) {
-            $query->where('ci', 'like', "%{$request->ci}%");
+            $query->where('ci', 'ilike', "%{$request->ci}%");
         }
 
         if ($request->has('client_category')) {
@@ -387,12 +387,12 @@ class UserController extends BaseController
             })
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
-                    $q->where('id', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%")
-                        ->orWhere('ci', 'like', "%{$search}%")
-                        ->orWhere('client_category', 'like', "%{$search}%");
+                    $q->where('id', 'ilike', "%{$search}%")
+                        ->orWhere('name', 'ilike', "%{$search}%")
+                        ->orWhere('email', 'ilike', "%{$search}%")
+                        ->orWhere('phone', 'ilike', "%{$search}%")
+                        ->orWhere('ci', 'ilike', "%{$search}%")
+                        ->orWhere('client_category', 'ilike', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
@@ -426,12 +426,12 @@ class UserController extends BaseController
             })
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
-                    $q->where('id', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%")
-                        ->orWhere('ci', 'like', "%{$search}%")
-                        ->orWhere('client_category', 'like', "%{$search}%");
+                    $q->where('id', 'ilike', "%{$search}%")
+                        ->orWhere('name', 'ilike', "%{$search}%")
+                        ->orWhere('email', 'ilike', "%{$search}%")
+                        ->orWhere('phone', 'ilike', "%{$search}%")
+                        ->orWhere('ci', 'ilike', "%{$search}%")
+                        ->orWhere('client_category', 'ilike', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
@@ -773,12 +773,12 @@ class UserController extends BaseController
             ->with(['roles', 'permissions'])
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
-                    $q->where('id', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%")
-                        ->orWhere('ci', 'like', "%{$search}%")
-                        ->orWhere('client_category', 'like', "%{$search}%");
+                    $q->where('id', 'ilike', "%{$search}%")
+                        ->orWhere('name', 'ilike', "%{$search}%")
+                        ->orWhere('email', 'ilike', "%{$search}%")
+                        ->orWhere('phone', 'ilike', "%{$search}%")
+                        ->orWhere('ci', 'ilike', "%{$search}%")
+                        ->orWhere('client_category', 'ilike', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
@@ -881,12 +881,12 @@ class UserController extends BaseController
             ->with(['roles', 'permissions'])
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
-                    $q->where('id', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%")
-                        ->orWhere('ci', 'like', "%{$search}%")
-                        ->orWhere('client_category', 'like', "%{$search}%");
+                    $q->where('id', 'ilike', "%{$search}%")
+                        ->orWhere('name', 'ilike', "%{$search}%")
+                        ->orWhere('email', 'ilike', "%{$search}%")
+                        ->orWhere('phone', 'ilike', "%{$search}%")
+                        ->orWhere('ci', 'ilike', "%{$search}%")
+                        ->orWhere('client_category', 'ilike', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
@@ -1018,12 +1018,12 @@ class UserController extends BaseController
             ->with(['roles', 'permissions', 'assignedCobrador', 'assignedManagerDirectly'])
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
-                    $q->where('id', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%")
-                        ->orWhere('ci', 'like', "%{$search}%")
-                        ->orWhere('client_category', 'like', "%{$search}%");
+                    $q->where('id', 'ilike', "%{$search}%")
+                        ->orWhere('name', 'ilike', "%{$search}%")
+                        ->orWhere('email', 'ilike', "%{$search}%")
+                        ->orWhere('phone', 'ilike', "%{$search}%")
+                        ->orWhere('ci', 'ilike', "%{$search}%")
+                        ->orWhere('client_category', 'ilike', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
@@ -1054,12 +1054,12 @@ class UserController extends BaseController
             ->with(['roles', 'permissions'])
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
-                    $q->where('id', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%")
-                        ->orWhere('ci', 'like', "%{$search}%")
-                        ->orWhere('client_category', 'like', "%{$search}%");
+                    $q->where('id', 'ilike', "%{$search}%")
+                        ->orWhere('name', 'ilike', "%{$search}%")
+                        ->orWhere('email', 'ilike', "%{$search}%")
+                        ->orWhere('phone', 'ilike', "%{$search}%")
+                        ->orWhere('ci', 'ilike', "%{$search}%")
+                        ->orWhere('client_category', 'ilike', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
@@ -1225,10 +1225,10 @@ class UserController extends BaseController
             ->with(['roles', 'permissions', 'assignedCobrador', 'assignedManagerDirectly'])
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('ci', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%");
+                    $q->where('name', 'ilike', "%{$search}%")
+                        ->orWhere('email', 'ilike', "%{$search}%")
+                        ->orWhere('ci', 'ilike', "%{$search}%")
+                        ->orWhere('phone', 'ilike', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')

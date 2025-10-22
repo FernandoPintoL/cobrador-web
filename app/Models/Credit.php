@@ -329,9 +329,9 @@ class Credit extends Model
     public function isOverdue(): bool
     {
         $expectedInstallments = $this->getExpectedInstallments();
-        $completedPayments    = $this->payments()->where('status', 'completed')->count();
+        $completedInstallments = $this->getCompletedInstallmentsCount();
 
-        return $completedPayments < $expectedInstallments;
+        return $completedInstallments < $expectedInstallments;
     }
 
     /**
@@ -344,8 +344,8 @@ class Credit extends Model
         }
 
         $expectedInstallments = $this->getExpectedInstallments();
-        $completedPayments    = $this->payments()->where('status', 'completed')->count();
-        $overdueInstallments  = $expectedInstallments - $completedPayments;
+        $completedInstallments = $this->getCompletedInstallmentsCount();
+        $overdueInstallments  = $expectedInstallments - $completedInstallments;
 
         return $overdueInstallments * $this->installment_amount;
     }
