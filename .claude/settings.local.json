@@ -10,7 +10,11 @@
       "mcp__laravel-boost__read-log-entries",
       "mcp__laravel-boost__tinker",
       "Read(//d/**)",
-      "mcp__laravel-boost__last-error"
+      "mcp__laravel-boost__last-error",
+      "Bash(tree /F \"D:\\josecarlos\\cobrador\\app\\Exports\")",
+      "Bash(find:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []

@@ -47,7 +47,7 @@ class CreditsExport implements FromCollection, ShouldAutoSize, WithHeadings, Wit
     public function map($credit): array
     {
         $totalAmount = (float) ($credit->total_amount ?? $credit->calculateTotalAmount());
-        $balance = (float) ($credit->balance ?? $credit->getCurrentBalance());
+        $balance = (float) ($credit->balance ?? 0);
         $paidAmount = max(0, $totalAmount - $balance);
 
         return [

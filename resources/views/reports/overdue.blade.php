@@ -7,55 +7,85 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 20px;
+            margin: 12px;
+            font-size: 9px;
         }
 
         .header {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 12px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 16px;
+        }
+
+        .header p {
+            margin: 2px 0;
+            font-size: 8px;
         }
 
         .summary {
             background: #f5f5f5;
-            padding: 15px;
-            margin-bottom: 20px;
+            padding: 8px;
+            margin-bottom: 12px;
             border-radius: 5px;
+        }
+
+        .summary h3,
+        .summary h4 {
+            margin: 3px 0;
+            font-size: 10px;
+        }
+
+        .summary p {
+            margin: 2px 0;
+            font-size: 8px;
         }
 
         .summary-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 15px;
+            gap: 8px;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
+            margin-top: 10px;
+            font-size: 8px;
         }
 
         th,
         td {
-            border: 1px solid #ddd;
-            padding: 8px;
+            border: 1px solid #999;
+            padding: 3px 2px;
             text-align: left;
-            font-size: 11px;
         }
 
         th {
-            background-color: #f2f2f2;
+            background-color: #4472C4;
+            color: white;
+            font-weight: bold;
+            font-size: 7px;
         }
 
         .footer {
-            margin-top: 30px;
+            margin-top: 12px;
             text-align: center;
-            font-size: 12px;
+            font-size: 8px;
             color: #666;
         }
 
+        /* Overdue installments colors */
+        .overdue-light { background-color: #fffacd; } /* Amarillo para 1-3 atrasos */
+        .overdue-severe { background-color: #ffcccc; } /* Rojo para más de 3 atrasos */
+
+        /* Days overdue colors */
         .severity-light { background-color: #fff3cd; }
-        .severity-moderate { background-color: #ffecb5; }
-        .severity-severe { background-color: #f8d7da; }
+        .severity-moderate { background-color: #ffe6e6; }
+        .severity-severe { background-color: #ffcccc; }
 
     </style>
 </head>
@@ -95,29 +125,49 @@
                 <th>Categoría</th>
                 <th>Cobrador</th>
                 <th>Días Mora</th>
-                <th>Monto Mora</th>
-                <th>Balance</th>
-                <th>Cuotas Atrasadas</th>
+                <th>Monto Vencido</th>
+                <th>Balance Total</th>
+                <th>Cuotas Vencidas</th>
+                <th>Cuotas Totales</th>
                 <th>% Completado</th>
+                <th>Monto Original</th>
+                <th>Monto con Interés</th>
             </tr>
         </thead>
         <tbody>
             @foreach($credits as $credit)
-            <tr class="
-                @if($credit->days_overdue <= 7) severity-light
-                @elseif($credit->days_overdue <= 30) severity-moderate
-                @else severity-severe
-                @endif
-            ">
-                <td>{{ $credit->id }}</td>
+            @php
+                $overdueDaysClass = '';
+                if ($credit->days_overdue <= 7) {
+                    $overdueDaysClass = 'severity-light';
+                } elseif ($credit->days_overdue <= 30) {
+                    $overdueDaysClass = 'severity-moderate';
+                } else {
+                    $overdueDaysClass = 'severity-severe';
+                }
+
+                $overdueInstallmentsClass = '';
+                if ($credit->overdue_installments >= 1 && $credit->overdue_installments <= 3) {
+                    $overdueInstallmentsClass = 'overdue-light';
+                } elseif ($credit->overdue_installments > 3) {
+                    $overdueInstallmentsClass = 'overdue-severe';
+                }
+
+                $finalClass = $overdueInstallmentsClass ?: $overdueDaysClass;
+            @endphp
+            <tr class="{{ $finalClass }}">
+                <td><strong>{{ $credit->id }}</strong></td>
                 <td>{{ $credit->client->name ?? 'N/A' }}</td>
                 <td>{{ $credit->client->client_category ?? 'N/A' }}</td>
                 <td>{{ $credit->deliveredBy->name ?? $credit->createdBy->name ?? 'N/A' }}</td>
-                <td>{{ $credit->days_overdue }}</td>
+                <td><strong>{{ $credit->days_overdue }}</strong></td>
                 <td>Bs {{ number_format($credit->overdue_amount, 2) }}</td>
                 <td>Bs {{ number_format($credit->balance, 2) }}</td>
-                <td>{{ $credit->overdue_installments }}</td>
-                <td>{{ $credit->completion_rate }}%</td>
+                <td style="font-weight: bold; text-align: center;">{{ $credit->overdue_installments }}</td>
+                <td style="text-align: center;">{{ $credit->total_installments ?? 0 }}</td>
+                <td style="text-align: center;">{{ $credit->completion_rate }}%</td>
+                <td>Bs {{ number_format($credit->amount, 2) }}</td>
+                <td>Bs {{ number_format($credit->total_amount ?? $credit->amount * 1.1, 2) }}</td>
             </tr>
             @endforeach
         </tbody>
