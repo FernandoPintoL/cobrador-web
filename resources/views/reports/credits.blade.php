@@ -1,178 +1,119 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reporte de Créditos</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 15px;
-            font-size: 10px;
-        }
+@extends('reports.layouts.base')
 
-        .header {
-            text-align: center;
-            margin-bottom: 15px;
-        }
+@section('content')
+    @include('reports.components.header', [
+        'title' => 'Reporte de Créditos',
+        'generated_at' => $generated_at,
+        'generated_by' => $generated_by,
+    ])
 
-        .header h1 {
-            margin: 0;
-            font-size: 18px;
-        }
+    @include('reports.components.summary-section', [
+        'title' => 'Resumen General',
+        'columns' => 3,
+        'items' => [
+            'Total créditos' => $summary['total_credits'],
+            'Monto total' => 'Bs ' . number_format($summary['total_amount'], 2),
+            'Créditos activos' => $summary['active_credits'],
+            'Créditos completados' => $summary['completed_credits'],
+            'Balance pendiente' => 'Bs ' . number_format($summary['total_balance'], 2),
+            'Total invertido' => 'Bs ' . number_format($summary['total_amount'] + ($summary['total_amount'] * 0.1), 2),
+        ],
+    ])
 
-        .header p {
-            margin: 2px 0;
-            font-size: 9px;
-        }
+    @php
+        // Preparar headers de tabla
+        $headers = [
+            'ID', 'Cliente', 'Cobrador', 'Monto', 'Interés', 'Total',
+            'Pagado', 'Balance', 'Cuotas', 'Completadas', 'Vencidas', 'Estado', 'Inicio'
+        ];
 
-        .summary {
-            background: #f5f5f5;
-            padding: 10px;
-            margin-bottom: 15px;
-            border-radius: 5px;
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-        }
+        // Preparar función para generar clase de fila según cuotas vencidas
+        $getRowClass = function($credit) {
+            $totalAmount = $credit->total_amount ?? ($credit->amount * 1.1);
+            $completedInstallments = $credit->getCompletedInstallmentsCount();
+            $expectedInstallments = $credit->getExpectedInstallments();
+            $pendingInstallments = $expectedInstallments - $completedInstallments;
 
-        .summary h3 {
-            grid-column: 1 / -1;
-            margin: 0 0 5px 0;
-            font-size: 11px;
-        }
+            if ($pendingInstallments <= 0) {
+                return 'row-clean';
+            } elseif ($pendingInstallments <= 3) {
+                return 'row-warning';
+            }
+            return 'row-danger';
+        };
 
-        .summary p {
-            margin: 2px 0;
-            font-size: 9px;
-        }
+        // Preparar vista de datos personalizada
+        $credits_custom = $credits->map(function($credit) {
+            $totalAmount = $credit->total_amount ?? ($credit->amount * 1.1);
+            $paidAmount = $credit->total_paid ?? ($totalAmount - $credit->balance);
+            $completedInstallments = $credit->getCompletedInstallmentsCount();
+            $expectedInstallments = $credit->getExpectedInstallments();
+            $pendingInstallments = $expectedInstallments - $completedInstallments;
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-            font-size: 9px;
-        }
+            return (object) array_merge(
+                $credit->toArray(),
+                [
+                    'client_name' => $credit->client->name ?? 'N/A',
+                    'cobrador_name' => $credit->createdBy->name ?? 'N/A',
+                    'interest_amount' => $totalAmount - $credit->amount,
+                    'total_with_interest' => $totalAmount,
+                    'paid_amount' => $paidAmount,
+                    'total_installments' => $expectedInstallments,
+                    'completed_installments' => $completedInstallments,
+                    'pending_installments' => $pendingInstallments,
+                    'pending_display' => $pendingInstallments <= 0
+                        ? '<span class="icon icon-clean">✓</span> ' . $pendingInstallments
+                        : ($pendingInstallments <= 3
+                            ? '<span class="icon icon-warning">⚠</span> ' . $pendingInstallments
+                            : '<span class="icon icon-danger">✕</span> ' . $pendingInstallments),
+                    'status_display' => substr(str_replace('_', ' ', $credit->status), 0, 10),
+                    'start_date_formatted' => $credit->start_date ? \Carbon\Carbon::parse($credit->start_date)->format('d/m/y') : 'N/A',
+                ]
+            );
+        });
+    @endphp
 
-        th,
-        td {
-            border: 1px solid #999;
-            padding: 4px 3px;
-            text-align: left;
-        }
-
-        th {
-            background-color: #4472C4;
-            color: white;
-            font-weight: bold;
-            font-size: 8px;
-        }
-
-        .footer {
-            margin-top: 15px;
-            text-align: center;
-            font-size: 9px;
-            color: #666;
-        }
-
-        /* Color schemes based on overdue installments */
-        .overdue-0 {
-            background-color: #ffffff;
-        }
-
-        .overdue-1-3 {
-            background-color: #fffacd;
-        }
-
-        .overdue-more {
-            background-color: #ffcccc;
-        }
-
-        .status-active {
-            color: #228B22;
-            font-weight: bold;
-        }
-
-        .status-completed {
-            color: #0000CD;
-            font-weight: bold;
-        }
-
-        .status-pending {
-            color: #FF8C00;
-            font-weight: bold;
-        }
-
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Reporte de Créditos</h1>
-        <p>Generado el: {{ $generated_at->format('d/m/Y H:i:s') }}</p>
-        <p>Por: {{ $generated_by }}</p>
-    </div>
-
-    <div class="summary">
-        <h3>Resumen General</h3>
-        <p><strong>Total créditos:</strong> {{ $summary['total_credits'] }}</p>
-        <p><strong>Monto total:</strong> Bs{{ number_format($summary['total_amount'], 2) }}</p>
-        <p><strong>Créditos activos:</strong> {{ $summary['active_credits'] }}</p>
-        <p><strong>Créditos completados:</strong> {{ $summary['completed_credits'] }}</p>
-        <p><strong>Balance pendiente:</strong> Bs{{ number_format($summary['total_balance'], 2) }}</p>
-        <p><strong>Total invertido:</strong> Bs{{ number_format($summary['total_amount'] + ($summary['total_amount'] * 0.1), 2) }}</p>
-    </div>
-
-    <table>
+    {{-- Componente tabla con datos personalizados --}}
+    <table class="report-table">
         <thead>
             <tr>
-                <th>ID</th>
-                <th>Cliente</th>
-                <th>Cobrador</th>
-                <th>Monto</th>
-                <th>Interés</th>
-                <th>Total</th>
-                <th>Pagado</th>
-                <th>Balance</th>
-                <th>Cuotas</th>
-                <th>Completadas</th>
-                <th>Vencidas</th>
-                <th>Estado</th>
-                <th>Inicio</th>
+                @foreach($headers as $header)
+                <th>{{ $header }}</th>
+                @endforeach
             </tr>
         </thead>
         <tbody>
-            @foreach($credits as $credit)
-            @php
-                $totalAmount = $credit->total_amount ?? ($credit->amount * 1.1);
-                $paidAmount = $credit->total_paid ?? ($totalAmount - $credit->balance);
-                $completedInstallments = $credit->getCompletedInstallmentsCount();
-                $expectedInstallments = $credit->getExpectedInstallments();
-                $pendingInstallments = $expectedInstallments - $completedInstallments;
-                $overdueClass = $pendingInstallments <= 0 ? 'overdue-0' : ($pendingInstallments <= 3 ? 'overdue-1-3' : 'overdue-more');
-            @endphp
-            <tr class="{{ $overdueClass }}">
+            @forelse($credits_custom as $credit)
+            <tr class="{{ $getRowClass($credit) }}">
                 <td>{{ $credit->id }}</td>
-                <td>{{ $credit->client->name ?? 'N/A' }}</td>
-                <td>{{ $credit->createdBy->name ?? 'N/A' }}</td>
-                <td>Bs{{ number_format($credit->amount, 2) }}</td>
-                <td>Bs{{ number_format($totalAmount - $credit->amount, 2) }}</td>
-                <td>Bs{{ number_format($totalAmount, 2) }}</td>
-                <td>Bs{{ number_format($paidAmount, 2) }}</td>
-                <td>Bs{{ number_format($credit->balance, 2) }}</td>
-                <td>{{ $expectedInstallments }}</td>
-                <td>{{ $completedInstallments }}</td>
-                <td style="font-weight: bold;">{{ $pendingInstallments }}</td>
-                <td class="status-{{ $credit->status }}">
-                    {{ substr(str_replace('_', ' ', $credit->status), 0, 10) }}
+                <td>{{ $credit->client_name }}</td>
+                <td>{{ $credit->cobrador_name }}</td>
+                <td>Bs {{ number_format($credit->amount, 2) }}</td>
+                <td>Bs {{ number_format($credit->interest_amount, 2) }}</td>
+                <td>Bs {{ number_format($credit->total_with_interest, 2) }}</td>
+                <td>Bs {{ number_format($credit->paid_amount, 2) }}</td>
+                <td>Bs {{ number_format($credit->balance, 2) }}</td>
+                <td>{{ $credit->total_installments }}</td>
+                <td>{{ $credit->completed_installments }}</td>
+                <td style="text-align: center;">
+                    {!! $credit->pending_display !!}
                 </td>
-                <td>{{ $credit->start_date ? \Carbon\Carbon::parse($credit->start_date)->format('d/m/y') : 'N/A' }}</td>
+                <td class="status-{{ $credit->status }}">
+                    {{ $credit->status_display }}
+                </td>
+                <td>{{ $credit->start_date_formatted }}</td>
             </tr>
-            @endforeach
+            @empty
+            <tr>
+                <td colspan="{{ count($headers) }}" style="text-align: center; padding: var(--spacing-lg); color: var(--color-text-secondary);">
+                    No hay datos disponibles
+                </td>
+            </tr>
+            @endforelse
         </tbody>
     </table>
 
-    <div class="footer">
-        <p>Reporte generado por el Sistema de Cobrador</p>
-    </div>
-</body>
-</html>
+    @include('reports.components.footer', [
+        'system_name' => 'Reporte generado por el Sistema de Cobrador',
+    ])
+@endsection

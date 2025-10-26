@@ -1,180 +1,161 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reporte de Mora</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 12px;
-            font-size: 9px;
-        }
+@extends('reports.layouts.base')
 
-        .header {
-            text-align: center;
-            margin-bottom: 12px;
-        }
+@section('content')
+    @include('reports.components.header', [
+        'title' => 'Reporte de Mora',
+        'generated_at' => $generated_at,
+        'generated_by' => $generated_by,
+    ])
 
-        .header h1 {
-            margin: 0;
-            font-size: 16px;
-        }
+    {{-- Resumen especial con dos columnas y gravedad --}}
+    <div class="summary-section">
+        <h3>Resumen General de Mora</h3>
 
-        .header p {
-            margin: 2px 0;
-            font-size: 8px;
-        }
-
-        .summary {
-            background: #f5f5f5;
-            padding: 8px;
-            margin-bottom: 12px;
-            border-radius: 5px;
-        }
-
-        .summary h3,
-        .summary h4 {
-            margin: 3px 0;
-            font-size: 10px;
-        }
-
-        .summary p {
-            margin: 2px 0;
-            font-size: 8px;
-        }
-
-        .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-            font-size: 8px;
-        }
-
-        th,
-        td {
-            border: 1px solid #999;
-            padding: 3px 2px;
-            text-align: left;
-        }
-
-        th {
-            background-color: #4472C4;
-            color: white;
-            font-weight: bold;
-            font-size: 7px;
-        }
-
-        .footer {
-            margin-top: 12px;
-            text-align: center;
-            font-size: 8px;
-            color: #666;
-        }
-
-        /* Overdue installments colors */
-        .overdue-light { background-color: #fffacd; } /* Amarillo para 1-3 atrasos */
-        .overdue-severe { background-color: #ffcccc; } /* Rojo para más de 3 atrasos */
-
-        /* Days overdue colors */
-        .severity-light { background-color: #fff3cd; }
-        .severity-moderate { background-color: #ffe6e6; }
-        .severity-severe { background-color: #ffcccc; }
-
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Reporte de Mora</h1>
-        <p>Generado el: {{ $generated_at->format('d/m/Y H:i:s') }}</p>
-        <p>Por: {{ $generated_by }}</p>
-    </div>
-
-    <div class="summary">
-        <h3>Resumen General</h3>
-        <div class="summary-grid">
-            <div>
-                <p><strong>Total créditos en mora:</strong> {{ $summary['total_overdue_credits'] }}</p>
-                <p><strong>Monto total en mora:</strong> Bs {{ number_format($summary['total_overdue_amount'], 2) }}</p>
-                <p><strong>Balance total en mora:</strong> Bs {{ number_format($summary['total_balance_overdue'], 2) }}</p>
+        <div class="summary-grid" style="grid-template-columns: repeat(2, 1fr);">
+            <div class="summary-item">
+                <p><strong>Total créditos en mora</strong></p>
+                <div class="value">{{ $summary['total_overdue_credits'] }}</div>
+                <p style="margin-top: var(--spacing-md); font-size: var(--font-size-body);">
+                    <strong>Monto total:</strong> Bs {{ number_format($summary['total_overdue_amount'], 2) }}
+                </p>
+                <p style="font-size: var(--font-size-body);">
+                    <strong>Balance:</strong> Bs {{ number_format($summary['total_balance_overdue'], 2) }}
+                </p>
             </div>
-            <div>
-                <p><strong>Promedio días en mora:</strong> {{ number_format($summary['average_days_overdue'], 0) }} días</p>
-                <p><strong>Máximo días en mora:</strong> {{ $summary['max_days_overdue'] }} días</p>
-                <p><strong>Mínimo días en mora:</strong> {{ $summary['min_days_overdue'] }} días</p>
+
+            <div class="summary-item">
+                <p><strong>Estadísticas de Días en Mora</strong></p>
+                <p style="margin-top: var(--spacing-xs); font-size: var(--font-size-body);">
+                    <strong>Promedio:</strong> {{ number_format($summary['average_days_overdue'], 0) }} días
+                </p>
+                <p style="font-size: var(--font-size-body);">
+                    <strong>Máximo:</strong> {{ $summary['max_days_overdue'] }} días
+                </p>
+                <p style="font-size: var(--font-size-body);">
+                    <strong>Mínimo:</strong> {{ $summary['min_days_overdue'] }} días
+                </p>
             </div>
         </div>
 
-        <h4>Distribución por Gravedad</h4>
-        <p><strong>Leve (1-7 días):</strong> {{ $summary['by_severity']['light'] }} créditos</p>
-        <p><strong>Moderada (8-30 días):</strong> {{ $summary['by_severity']['moderate'] }} créditos</p>
-        <p><strong>Severa (+30 días):</strong> {{ $summary['by_severity']['severe'] }} créditos</p>
+        <div class="summary-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: var(--spacing-md);">
+            <div class="summary-item" style="border-left-color: var(--color-warning);">
+                <p><strong>Leve (1-7 días)</strong></p>
+                <div class="value">{{ $summary['by_severity']['light'] }} créditos</div>
+            </div>
+            <div class="summary-item" style="border-left-color: var(--color-danger);">
+                <p><strong>Moderada (8-30 días)</strong></p>
+                <div class="value">{{ $summary['by_severity']['moderate'] }} créditos</div>
+            </div>
+            <div class="summary-item" style="border-left-color: #8B0000;">
+                <p><strong>Severa (+30 días)</strong></p>
+                <div class="value">{{ $summary['by_severity']['severe'] }} créditos</div>
+            </div>
+        </div>
     </div>
 
-    <table>
+    @php
+        $getRowClassOverdue = function($credit) {
+            $daysOverdue = $credit->days_overdue ?? 0;
+            $overdueInstallments = $credit->overdue_installments ?? 0;
+
+            // Prioridad a cuotas vencidas
+            if ($overdueInstallments >= 1 && $overdueInstallments <= 3) {
+                return 'row-warning';
+            } elseif ($overdueInstallments > 3) {
+                return 'row-danger';
+            }
+
+            // Fallback a días en mora
+            if ($daysOverdue <= 7) {
+                return 'row-warning';
+            } elseif ($daysOverdue <= 30) {
+                return 'row-warning';
+            }
+            return 'row-danger';
+        };
+
+        $headers = [
+            'ID', 'Cliente', 'Categoría', 'Cobrador', 'Días Mora',
+            'Monto Vencido', 'Balance Total', 'Cuotas Vencidas', 'Cuotas Totales',
+            '% Completado', 'Monto Original', 'Monto con Interés'
+        ];
+
+        $credits_custom = $credits->map(function($credit) {
+            $daysOverdue = $credit->days_overdue ?? 0;
+            $overdueInstallments = $credit->overdue_installments ?? 0;
+
+            // Generador de icon basado en días
+            $daysIcon = match(true) {
+                $daysOverdue <= 7 => '<span class="icon icon-warning">⚠</span>',
+                $daysOverdue <= 30 => '<span class="icon icon-danger">●</span>',
+                default => '<span style="color: #8B0000; font-size: 12px;">◆</span>',
+            };
+
+            // Generador de icon para cuotas
+            $installmentsIcon = match(true) {
+                $overdueInstallments <= 0 => '<span class="icon icon-clean">✓</span>',
+                $overdueInstallments <= 3 => '<span class="icon icon-warning">⚠</span>',
+                default => '<span class="icon icon-danger">✕</span>',
+            };
+
+            return (object) array_merge(
+                $credit->toArray(),
+                [
+                    'client_name' => $credit->client->name ?? 'N/A',
+                    'client_category' => $credit->client->client_category ?? 'N/A',
+                    'cobrador_name' => $credit->deliveredBy->name ?? $credit->createdBy->name ?? 'N/A',
+                    'days_overdue_display' => $daysIcon . ' ' . $daysOverdue . 'd',
+                    'overdue_amount_formatted' => 'Bs ' . number_format($credit->overdue_amount, 2),
+                    'balance_formatted' => 'Bs ' . number_format($credit->balance, 2),
+                    'overdue_installments_display' => $installmentsIcon . ' ' . $overdueInstallments,
+                    'total_installments_display' => $credit->total_installments ?? 0,
+                    'completion_rate_display' => $credit->completion_rate . '%',
+                    'amount_formatted' => 'Bs ' . number_format($credit->amount, 2),
+                    'total_amount_formatted' => 'Bs ' . number_format($credit->total_amount ?? $credit->amount * 1.1, 2),
+                ]
+            );
+        });
+    @endphp
+
+    <table class="report-table">
         <thead>
             <tr>
-                <th>ID</th>
-                <th>Cliente</th>
-                <th>Categoría</th>
-                <th>Cobrador</th>
-                <th>Días Mora</th>
-                <th>Monto Vencido</th>
-                <th>Balance Total</th>
-                <th>Cuotas Vencidas</th>
-                <th>Cuotas Totales</th>
-                <th>% Completado</th>
-                <th>Monto Original</th>
-                <th>Monto con Interés</th>
+                @foreach($headers as $header)
+                <th>{{ $header }}</th>
+                @endforeach
             </tr>
         </thead>
         <tbody>
-            @foreach($credits as $credit)
-            @php
-                $overdueDaysClass = '';
-                if ($credit->days_overdue <= 7) {
-                    $overdueDaysClass = 'severity-light';
-                } elseif ($credit->days_overdue <= 30) {
-                    $overdueDaysClass = 'severity-moderate';
-                } else {
-                    $overdueDaysClass = 'severity-severe';
-                }
-
-                $overdueInstallmentsClass = '';
-                if ($credit->overdue_installments >= 1 && $credit->overdue_installments <= 3) {
-                    $overdueInstallmentsClass = 'overdue-light';
-                } elseif ($credit->overdue_installments > 3) {
-                    $overdueInstallmentsClass = 'overdue-severe';
-                }
-
-                $finalClass = $overdueInstallmentsClass ?: $overdueDaysClass;
-            @endphp
-            <tr class="{{ $finalClass }}">
+            @forelse($credits_custom as $credit)
+            <tr class="{{ $getRowClassOverdue($credit) }}">
                 <td><strong>{{ $credit->id }}</strong></td>
-                <td>{{ $credit->client->name ?? 'N/A' }}</td>
-                <td>{{ $credit->client->client_category ?? 'N/A' }}</td>
-                <td>{{ $credit->deliveredBy->name ?? $credit->createdBy->name ?? 'N/A' }}</td>
-                <td><strong>{{ $credit->days_overdue }}</strong></td>
-                <td>Bs {{ number_format($credit->overdue_amount, 2) }}</td>
-                <td>Bs {{ number_format($credit->balance, 2) }}</td>
-                <td style="font-weight: bold; text-align: center;">{{ $credit->overdue_installments }}</td>
-                <td style="text-align: center;">{{ $credit->total_installments ?? 0 }}</td>
-                <td style="text-align: center;">{{ $credit->completion_rate }}%</td>
-                <td>Bs {{ number_format($credit->amount, 2) }}</td>
-                <td>Bs {{ number_format($credit->total_amount ?? $credit->amount * 1.1, 2) }}</td>
+                <td>{{ $credit->client_name }}</td>
+                <td>{{ $credit->client_category }}</td>
+                <td>{{ $credit->cobrador_name }}</td>
+                <td style="text-align: center; font-weight: bold;">
+                    {!! $credit->days_overdue_display !!}
+                </td>
+                <td>{{ $credit->overdue_amount_formatted }}</td>
+                <td>{{ $credit->balance_formatted }}</td>
+                <td style="font-weight: bold; text-align: center;">
+                    {!! $credit->overdue_installments_display !!}
+                </td>
+                <td style="text-align: center;">{{ $credit->total_installments_display }}</td>
+                <td style="text-align: center;">{{ $credit->completion_rate_display }}</td>
+                <td>{{ $credit->amount_formatted }}</td>
+                <td>{{ $credit->total_amount_formatted }}</td>
             </tr>
-            @endforeach
+            @empty
+            <tr>
+                <td colspan="{{ count($headers) }}" style="text-align: center; padding: var(--spacing-lg); color: var(--color-text-secondary);">
+                    No hay datos disponibles
+                </td>
+            </tr>
+            @endforelse
         </tbody>
     </table>
 
-    <div class="footer">
-        <p>Reporte generado por el Sistema de Cobrador</p>
-    </div>
-</body>
-</html>
+    @include('reports.components.footer', [
+        'system_name' => 'Reporte generado por el Sistema de Cobrador',
+    ])
+@endsection

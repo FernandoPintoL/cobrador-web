@@ -1,78 +1,28 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lista de Espera</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
+@extends('reports.layouts.base')
 
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
+@section('content')
+    @include('reports.components.header', [
+        'title' => 'Lista de Espera - Créditos Pendientes',
+        'generated_at' => $generated_at,
+        'generated_by' => $generated_by,
+    ])
 
-        .summary {
-            background: #f5f5f5;
-            padding: 15px;
-            margin-bottom: 20px;
-            border-radius: 5px;
-        }
+    @include('reports.components.summary-section', [
+        'title' => 'Resumen',
+        'columns' => 2,
+        'items' => [
+            'Total en lista de espera' => $summary['total_waiting'],
+            'Pendientes de aprobación' => $summary['pending_approval'],
+            'Esperando entrega' => $summary['waiting_delivery'],
+            'Vencidos para entrega' => $summary['overdue_for_delivery'],
+            'Monto total pendiente' => 'Bs ' . number_format($summary['total_pending_amount'], 2),
+            'Promedio días esperando' => number_format($summary['average_days_waiting'], 1) . ' días',
+            'Máximo días esperando' => $summary['max_days_waiting'] . ' días',
+        ],
+    ])
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-
-        th,
-        td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-            font-size: 11px;
-        }
-
-        th {
-            background-color: #f2f2f2;
-        }
-
-        .footer {
-            margin-top: 30px;
-            text-align: center;
-            font-size: 12px;
-            color: #666;
-        }
-
-        .status-pending_approval { background-color: #fff3cd; }
-        .status-waiting_delivery { background-color: #cfe2ff; }
-        .status-overdue { background-color: #f8d7da; }
-
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Lista de Espera - Créditos Pendientes</h1>
-        <p>Generado el: {{ $generated_at->format('d/m/Y H:i:s') }}</p>
-        <p>Por: {{ $generated_by }}</p>
-    </div>
-
-    <div class="summary">
-        <h3>Resumen</h3>
-        <p><strong>Total en lista de espera:</strong> {{ $summary['total_waiting'] }}</p>
-        <p><strong>Pendientes de aprobación:</strong> {{ $summary['pending_approval'] }}</p>
-        <p><strong>Esperando entrega:</strong> {{ $summary['waiting_delivery'] }}</p>
-        <p><strong>Vencidos para entrega:</strong> {{ $summary['overdue_for_delivery'] }}</p>
-        <p><strong>Monto total pendiente:</strong> Bs {{ number_format($summary['total_pending_amount'], 2) }}</p>
-        <p><strong>Promedio días esperando:</strong> {{ number_format($summary['average_days_waiting'], 1) }} días</p>
-        <p><strong>Máximo días esperando:</strong> {{ $summary['max_days_waiting'] }} días</p>
-    </div>
-
-    <h3>Pendientes de Aprobación</h3>
-    <table>
+    <h3 style="margin-top: var(--spacing-lg); color: var(--color-primary); border-bottom: 2px solid var(--color-primary); padding-bottom: var(--spacing-sm);">Pendientes de Aprobación</h3>
+    <table class="report-table">
         <thead>
             <tr>
                 <th>ID</th>
@@ -84,8 +34,8 @@
             </tr>
         </thead>
         <tbody>
-            @foreach($pending_approval as $credit)
-            <tr class="status-pending_approval">
+            @forelse($pending_approval as $credit)
+            <tr class="row-warning">
                 <td>{{ $credit->id }}</td>
                 <td>{{ $credit->client->name ?? 'N/A' }}</td>
                 <td>{{ $credit->createdBy->name ?? 'N/A' }}</td>
@@ -93,12 +43,18 @@
                 <td>{{ $credit->created_at->format('d/m/Y') }}</td>
                 <td>{{ $credit->days_waiting }}</td>
             </tr>
-            @endforeach
+            @empty
+            <tr>
+                <td colspan="6" style="text-align: center; padding: var(--spacing-lg); color: var(--color-text-secondary);">
+                    No hay datos disponibles
+                </td>
+            </tr>
+            @endforelse
         </tbody>
     </table>
 
-    <h3>Esperando Entrega</h3>
-    <table>
+    <h3 style="margin-top: var(--spacing-lg); color: var(--color-primary); border-bottom: 2px solid var(--color-primary); padding-bottom: var(--spacing-sm);">Esperando Entrega</h3>
+    <table class="report-table">
         <thead>
             <tr>
                 <th>ID</th>
@@ -111,8 +67,8 @@
             </tr>
         </thead>
         <tbody>
-            @foreach($waiting_delivery as $credit)
-            <tr class="{{ $credit->is_overdue_for_delivery ? 'status-overdue' : 'status-waiting_delivery' }}">
+            @forelse($waiting_delivery as $credit)
+            <tr class="{{ $credit->is_overdue_for_delivery ? 'row-danger' : 'row-clean' }}">
                 <td>{{ $credit->id }}</td>
                 <td>{{ $credit->client->name ?? 'N/A' }}</td>
                 <td>{{ $credit->createdBy->name ?? 'N/A' }}</td>
@@ -121,12 +77,15 @@
                 <td>{{ $credit->days_waiting }}</td>
                 <td>{{ $credit->is_overdue_for_delivery ? 'VENCIDO' : 'Pendiente' }}</td>
             </tr>
-            @endforeach
+            @empty
+            <tr>
+                <td colspan="7" style="text-align: center; padding: var(--spacing-lg); color: var(--color-text-secondary);">
+                    No hay datos disponibles
+                </td>
+            </tr>
+            @endforelse
         </tbody>
     </table>
 
-    <div class="footer">
-        <p>Reporte generado por el Sistema de Cobrador</p>
-    </div>
-</body>
-</html>
+    @include('reports.components.footer')
+@endsection

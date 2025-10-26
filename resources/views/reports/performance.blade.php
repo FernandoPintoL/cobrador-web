@@ -1,74 +1,28 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reporte de Rendimiento</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-        }
+@extends('reports.layouts.base')
 
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
+@section('content')
+    @include('reports.components.header', [
+        'title' => 'Reporte de Rendimiento',
+        'generated_at' => $generated_at,
+        'generated_by' => $generated_by,
+    ])
 
-        .summary {
-            background: #f5f5f5;
-            padding: 15px;
-            margin-bottom: 20px;
-            border-radius: 5px;
-        }
+    @include('reports.components.summary-section', [
+        'title' => 'Resumen del Período',
+        'columns' => 2,
+        'items' => [
+            'Período' => $summary['period']['start'] . ' - ' . $summary['period']['end'],
+            'Total cobradores' => $summary['total_cobradores'],
+            'Créditos entregados' => $summary['totals']['credits_delivered'],
+            'Monto prestado' => 'Bs ' . number_format($summary['totals']['amount_lent'], 2),
+            'Pagos cobrados' => $summary['totals']['payments_collected'],
+            'Monto cobrado' => 'Bs ' . number_format($summary['totals']['amount_collected'], 2),
+            'Tasa promedio cobranza' => number_format($summary['averages']['collection_rate'], 2) . '%',
+            'Calidad promedio cartera' => number_format($summary['averages']['portfolio_quality'], 2) . '%',
+        ],
+    ])
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-
-        th,
-        td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-            font-size: 10px;
-        }
-
-        th {
-            background-color: #f2f2f2;
-        }
-
-        .footer {
-            margin-top: 30px;
-            text-align: center;
-            font-size: 12px;
-            color: #666;
-        }
-
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Reporte de Rendimiento</h1>
-        <p>Generado el: {{ $generated_at->format('d/m/Y H:i:s') }}</p>
-        <p>Por: {{ $generated_by }}</p>
-    </div>
-
-    <div class="summary">
-        <h3>Resumen del Período</h3>
-        <p><strong>Período:</strong> {{ $summary['period']['start'] }} - {{ $summary['period']['end'] }}</p>
-        <p><strong>Total cobradores:</strong> {{ $summary['total_cobradores'] }}</p>
-        <p><strong>Créditos entregados:</strong> {{ $summary['totals']['credits_delivered'] }}</p>
-        <p><strong>Monto prestado:</strong> Bs {{ number_format($summary['totals']['amount_lent'], 2) }}</p>
-        <p><strong>Pagos cobrados:</strong> {{ $summary['totals']['payments_collected'] }}</p>
-        <p><strong>Monto cobrado:</strong> Bs {{ number_format($summary['totals']['amount_collected'], 2) }}</p>
-        <p><strong>Tasa promedio de cobranza:</strong> {{ number_format($summary['averages']['collection_rate'], 2) }}%</p>
-        <p><strong>Calidad promedio de cartera:</strong> {{ number_format($summary['averages']['portfolio_quality'], 2) }}%</p>
-    </div>
-
-    <table>
+    <table class="report-table">
         <thead>
             <tr>
                 <th>Cobrador</th>
@@ -88,7 +42,7 @@
             </tr>
         </thead>
         <tbody>
-            @foreach($performance as $item)
+            @forelse($performance as $item)
             <tr>
                 <td>{{ $item['cobrador_name'] }}</td>
                 <td>{{ $item['manager_name'] }}</td>
@@ -105,12 +59,15 @@
                 <td>{{ number_format($item['metrics']['efficiency_score'], 2) }}</td>
                 <td>{{ $item['metrics']['active_clients'] }}</td>
             </tr>
-            @endforeach
+            @empty
+            <tr>
+                <td colspan="14" style="text-align: center; padding: var(--spacing-lg); color: var(--color-text-secondary);">
+                    No hay datos disponibles
+                </td>
+            </tr>
+            @endforelse
         </tbody>
     </table>
 
-    <div class="footer">
-        <p>Reporte generado por el Sistema de Cobrador</p>
-    </div>
-</body>
-</html>
+    @include('reports.components.footer')
+@endsection

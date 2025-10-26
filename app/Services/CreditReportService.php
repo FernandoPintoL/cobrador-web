@@ -1,0 +1,155 @@
+<?php
+
+namespace App\Services;
+
+use App\DTOs\CreditReportDTO;
+use App\Models\Credit;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
+
+/**
+ * CreditReportService - Servicio Centralizado de Reportes de Créditos
+ *
+ * ✅ ARQUITECTURA CENTRALIZADA - OPCIÓN 3
+ * Encapsula toda la lógica de reportes de créditos en un único servicio.
+ */
+class CreditReportService
+{
+    /**
+     * Genera el reporte completo de créditos
+     *
+     * @param array $filters Filtros (status, cobrador_id, client_id, etc)
+     * @param object $currentUser Usuario autenticado
+     * @return CreditReportDTO
+     */
+    public function generateReport(array $filters, object $currentUser): CreditReportDTO
+    {
+        // 1. Obtener créditos con filtros
+        $query = $this->buildQuery($filters, $currentUser);
+        $credits = $query->orderBy('created_at', 'desc')->get();
+
+        // 2. Transformar créditos
+        $transformedCredits = $this->transformCredits($credits);
+
+        // 3. Calcular resumen
+        $summary = $this->calculateSummary($credits);
+
+        // 4. Retornar DTO
+        return new CreditReportDTO(
+            credits: $transformedCredits,
+            summary: $summary,
+            generated_at: now()->format('Y-m-d H:i:s'),
+            generated_by: $currentUser->name,
+        );
+    }
+
+    /**
+     * Construye la query base con filtros
+     */
+    private function buildQuery(array $filters, object $currentUser): Builder
+    {
+        $query = Credit::with(['client', 'createdBy', 'deliveredBy', 'payments', 'cashBalance']);
+
+        // Filtros específicos
+        if (!empty($filters['status'])) {
+            $query->where('status', $filters['status']);
+        }
+
+        // Cobrador flexible: creador o quien entregó
+        if (!empty($filters['cobrador_id'])) {
+            $query->where(function ($q) use ($filters) {
+                $q->where('created_by', $filters['cobrador_id'])
+                    ->orWhere('delivered_by', $filters['cobrador_id']);
+            });
+        }
+
+        if (!empty($filters['created_by'])) {
+            $query->where('created_by', $filters['created_by']);
+        }
+
+        if (!empty($filters['delivered_by'])) {
+            $query->where('delivered_by', $filters['delivered_by']);
+        }
+
+        if (!empty($filters['client_id'])) {
+            $query->where('client_id', $filters['client_id']);
+        }
+
+        // Filtros por fecha
+        if (!empty($filters['start_date'])) {
+            $query->whereDate('created_at', '>=', $filters['start_date']);
+        }
+
+        if (!empty($filters['end_date'])) {
+            $query->whereDate('created_at', '<=', $filters['end_date']);
+        }
+
+        // Validación de visibilidad por rol
+        if ($currentUser->hasRole('cobrador')) {
+            $query->where('created_by', $currentUser->id);
+        } elseif ($currentUser->hasRole('manager')) {
+            $query->whereHas('createdBy', function ($q) use ($currentUser) {
+                $q->where('assigned_manager_id', $currentUser->id);
+            });
+        }
+
+        return $query;
+    }
+
+    /**
+     * Transforma cada Credit a estructura con datos completos
+     */
+    private function transformCredits(Collection $credits): Collection
+    {
+        return $credits->map(function ($credit) {
+            return [
+                'id' => $credit->id,
+                'client_id' => $credit->client_id,
+                'client_name' => $credit->client?->name ?? 'N/A',
+                'amount' => (float) $credit->amount,
+                'amount_formatted' => 'Bs ' . number_format($credit->amount, 2),
+                'balance' => (float) $credit->balance,
+                'balance_formatted' => 'Bs ' . number_format($credit->balance, 2),
+                'status' => $credit->status,
+                'interest_rate' => (float) $credit->interest_rate,
+                'created_by_id' => $credit->created_by,
+                'created_by_name' => $credit->createdBy?->name ?? 'N/A',
+                'delivered_by_id' => $credit->delivered_by,
+                'delivered_by_name' => $credit->deliveredBy?->name ?? 'N/A',
+                'total_installments' => $credit->total_installments,
+                'pending_installments' => $credit->getPendingInstallments(),
+                'payments_count' => $credit->payments->count(),
+                'created_at' => $credit->created_at->format('Y-m-d H:i:s'),
+                'created_at_formatted' => $credit->created_at->format('d/m/Y'),
+                '_model' => $credit,
+            ];
+        });
+    }
+
+    /**
+     * Calcula el resumen agregado
+     */
+    private function calculateSummary(Collection $credits): array
+    {
+        $activeCredits = $credits->where('status', 'active');
+        $completedCredits = $credits->where('status', 'completed');
+
+        return [
+            'total_credits' => $credits->count(),
+            'total_amount' => (float) round($credits->sum('amount'), 2),
+            'total_amount_formatted' => 'Bs ' . number_format($credits->sum('amount'), 2),
+            'active_credits' => $activeCredits->count(),
+            'active_amount' => (float) round($activeCredits->sum('amount'), 2),
+            'active_amount_formatted' => 'Bs ' . number_format($activeCredits->sum('amount'), 2),
+            'completed_credits' => $completedCredits->count(),
+            'completed_amount' => (float) round($completedCredits->sum('amount'), 2),
+            'completed_amount_formatted' => 'Bs ' . number_format($completedCredits->sum('amount'), 2),
+            'total_balance' => (float) round($credits->sum('balance'), 2),
+            'total_balance_formatted' => 'Bs ' . number_format($credits->sum('balance'), 2),
+            'pending_amount' => (float) round($credits->sum('balance'), 2),
+            'pending_amount_formatted' => 'Bs ' . number_format($credits->sum('balance'), 2),
+            'average_amount' => (float) round($credits->avg('amount') ?? 0, 2),
+            'average_amount_formatted' => 'Bs ' . number_format($credits->avg('amount') ?? 0, 2),
+        ];
+    }
+}

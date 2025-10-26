@@ -14,7 +14,8 @@
       "Bash(tree /F \"D:\\josecarlos\\cobrador\\app\\Exports\")",
       "Bash(find:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git push)"
     ],
     "deny": [],
     "ask": []

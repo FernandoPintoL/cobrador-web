@@ -39,6 +39,27 @@ class Payment extends Model
     ];
 
     /**
+     * ==========================================
+     * CACHÉ EN MEMORIA PARA OPTIMIZACIÓN
+     * ==========================================
+     * Estos caches se usan para evitar cálculos redundantes
+     * durante la renderización de reportes.
+     */
+    protected static array $principalPortionCache = [];
+    protected static array $interestPortionCache = [];
+    protected static array $remainingForInstallmentCache = [];
+
+    /**
+     * Invalida todos los caches estáticos (usar en tests/commands si es necesario)
+     */
+    public static function clearCalculationCache(): void
+    {
+        static::$principalPortionCache = [];
+        static::$interestPortionCache = [];
+        static::$remainingForInstallmentCache = [];
+    }
+
+    /**
      * Get the client that made this payment.
      */
     public function client(): BelongsTo
@@ -79,23 +100,47 @@ class Payment extends Model
     }
 
     /**
+     * ==========================================
+     * MÉTODOS CACHEADOS PARA OPTIMIZACIÓN
+     * ==========================================
+     * Estos métodos usan caché en memoria para evitar
+     * cálculos redundantes durante reportes.
+     */
+
+    /**
+     * Get principal portion with caching.
+     * VENTAJA: Se calcula UNA SOLA VEZ por payment en una solicitud
+     * En un reporte de 100 pagos, 100 cálculos reutilizan caché
+     */
+    public function getPrincipalPortion(): float
+    {
+        $cacheKey = $this->id ?? 'new_' . spl_object_id($this);
+
+        if (!isset(static::$principalPortionCache[$cacheKey])) {
+            static::$principalPortionCache[$cacheKey] = $this->calculatePrincipalPortion();
+        }
+
+        return static::$principalPortionCache[$cacheKey];
+    }
+
+    /**
      * Calculate principal portion of this payment.
      * Uses credit's total installments and amount to estimate principal per installment.
      * Returns 0 when calculation is not possible.
      */
-    public function getPrincipalPortionAttribute(): float
+    private function calculatePrincipalPortion(): float
     {
-        if (! $this->credit) {
+        if (!$this->credit) {
             return 0.0;
         }
 
-        $credit            = $this->credit;
+        $credit = $this->credit;
         $totalInstallments = $credit->calculateTotalInstallments();
         if ($totalInstallments <= 0) {
             return 0.0;
         }
 
-        $installmentAmount       = $credit->installment_amount ?? $credit->calculateInstallmentAmount();
+        $installmentAmount = $credit->installment_amount ?? $credit->calculateInstallmentAmount();
         $principalPerInstallment = $credit->amount ? ($credit->amount / $totalInstallments) : 0.0;
 
         // Proporción del pago correspondiente a principal según la composición de la cuota
@@ -105,20 +150,50 @@ class Payment extends Model
     }
 
     /**
-     * Interest portion: remainder of the payment after principal portion.
+     * Get principal portion (ACCESSOR para compatibilidad backwards)
+     * DEPRECADO: Usa getPrincipalPortion() en su lugar para mejor performance
      */
-    public function getInterestPortionAttribute(): float
+    public function getPrincipalPortionAttribute(): float
     {
-        return (float) round($this->amount - $this->principal_portion, 2);
+        return $this->getPrincipalPortion();
     }
 
     /**
-     * Amount remaining to finish the installment this payment is paying.
-     * If installment_number is not set (0), returns null.
+     * Get interest portion with caching.
+     * VENTAJA: Reutiliza caché de principal_portion
      */
-    public function getRemainingForInstallmentAttribute(): ?float
+    public function getInterestPortion(): float
     {
-        if (! $this->credit) {
+        $cacheKey = $this->id ?? 'new_' . spl_object_id($this);
+
+        if (!isset(static::$interestPortionCache[$cacheKey])) {
+            static::$interestPortionCache[$cacheKey] = (float) round(
+                $this->amount - $this->getPrincipalPortion(),
+                2
+            );
+        }
+
+        return static::$interestPortionCache[$cacheKey];
+    }
+
+    /**
+     * Interest portion: remainder of the payment after principal portion.
+     * ACCESSOR para compatibilidad backwards
+     * DEPRECADO: Usa getInterestPortion() en su lugar para mejor performance
+     */
+    public function getInterestPortionAttribute(): float
+    {
+        return $this->getInterestPortion();
+    }
+
+    /**
+     * Get remaining for installment with caching.
+     * VENTAJA: Cache evita queries SQL redundantes
+     * En un reporte de 100 pagos, máximo 100 queries vs indefinidas sin caché
+     */
+    public function getRemainingForInstallment(): ?float
+    {
+        if (!$this->credit) {
             return null;
         }
 
@@ -127,18 +202,37 @@ class Payment extends Model
             return null;
         }
 
-        $credit            = $this->credit;
-        $installmentAmount = $credit->installment_amount ?? $credit->calculateInstallmentAmount();
+        $cacheKey = $this->credit_id . '_' . $installmentNumber . '_' . ($this->id ?? 'new');
 
-        // Sum all payments that are associated to this credit and installment number
-        $paidForInstallment = $credit->payments()->where('installment_number', $installmentNumber)->sum('amount');
+        if (!isset(static::$remainingForInstallmentCache[$cacheKey])) {
+            $credit = $this->credit;
+            $installmentAmount = $credit->installment_amount ?? $credit->calculateInstallmentAmount();
 
-        $remaining = $installmentAmount - $paidForInstallment;
-        if ($remaining < 0) {
-            $remaining = 0;
+            // Sum all payments that are associated to this credit and installment number
+            $paidForInstallment = $credit->payments()
+                ->where('installment_number', $installmentNumber)
+                ->sum('amount');
+
+            $remaining = $installmentAmount - $paidForInstallment;
+            if ($remaining < 0) {
+                $remaining = 0;
+            }
+
+            static::$remainingForInstallmentCache[$cacheKey] = (float) round($remaining, 2);
         }
 
-        return (float) round($remaining, 2);
+        return static::$remainingForInstallmentCache[$cacheKey];
+    }
+
+    /**
+     * Amount remaining to finish the installment this payment is paying.
+     * If installment_number is not set (0), returns null.
+     * ACCESSOR para compatibilidad backwards
+     * DEPRECADO: Usa getRemainingForInstallment() en su lugar para mejor performance
+     */
+    public function getRemainingForInstallmentAttribute(): ?float
+    {
+        return $this->getRemainingForInstallment();
     }
 
     /**
@@ -147,6 +241,25 @@ class Payment extends Model
     public function hasValidLocation(): bool
     {
         return ! is_null($this->latitude) && ! is_null($this->longitude);
+    }
+
+    /**
+     * Invalida los caches para este pago específico
+     * Usar después de actualizar o eliminar un pago
+     */
+    public function clearInstanceCache(): void
+    {
+        $id = $this->id;
+        $credit_id = $this->credit_id;
+        $installment_number = $this->installment_number;
+
+        unset(static::$principalPortionCache[$id]);
+        unset(static::$interestPortionCache[$id]);
+
+        if ($credit_id && $installment_number) {
+            $cacheKey = $credit_id . '_' . $installment_number . '_' . $id;
+            unset(static::$remainingForInstallmentCache[$cacheKey]);
+        }
     }
 
     /**

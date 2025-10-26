@@ -2,15 +2,33 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\DTOs\CreditReportDTO;
+use App\DTOs\PaymentReportDTO;
 use App\Exports\BalancesExport;
 use App\Exports\CreditsExport;
 use App\Exports\PaymentsExport;
 use App\Exports\UsersExport;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\BalanceResource;
+use App\Http\Resources\CreditResource;
+use App\Http\Resources\PaymentResource;
+use App\Http\Resources\ReportDataResource;
+use App\Http\Resources\UserResource;
 use App\Models\CashBalance;
 use App\Models\Credit;
 use App\Models\Payment;
 use App\Models\User;
+use App\Services\BalanceReportService;
+use App\Services\CashFlowForecastService;
+use App\Services\CommissionsService;
+use App\Services\CreditReportService;
+use App\Services\DailyActivityService;
+use App\Services\OverdueReportService;
+use App\Services\PaymentReportService;
+use App\Services\PerformanceReportService;
+use App\Services\PortfolioService;
+use App\Services\UserReportService;
+use App\Services\WaitingListService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -21,6 +39,10 @@ class ReportController extends Controller
 {
     /**
      * Generate payments report
+     *
+     * ✅ ARQUITECTURA CENTRALIZADA - OPCIÓN 3
+     * Delega la lógica completa al PaymentReportService
+     * El servicio retorna un DTO que se reutiliza en todos los formatos
      */
     public function paymentsReport(Request $request)
     {
@@ -31,91 +53,62 @@ class ReportController extends Controller
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
 
-        $query = Payment::with(['cobrador', 'credit.client']);
+        // ✅ Delegamos a servicio
+        $service = new PaymentReportService();
+        $reportDTO = $service->generateReport(
+            filters: $request->only(['start_date', 'end_date', 'cobrador_id']),
+            currentUser: Auth::user(),
+        );
 
-        // Apply filters
-        if ($request->start_date) {
-            $query->whereDate('payment_date', '>=', $request->start_date);
-        }
-
-        if ($request->end_date) {
-            $query->whereDate('payment_date', '<=', $request->end_date);
-        }
-
-        if ($request->cobrador_id) {
-            $query->where('cobrador_id', $request->cobrador_id);
-        }
-
-        // Apply role-based visibility
-        $currentUser = Auth::user();
-        if ($currentUser->hasRole('cobrador')) {
-            $query->where('cobrador_id', $currentUser->id);
-        }
-
-        $payments = $query->orderBy('payment_date', 'desc')->get();
-
-        // Calculate summary
-        $summary = [
-            'total_payments' => $payments->count(),
-            'total_amount' => $payments->sum('amount'),
-            'average_payment' => $payments->avg('amount'),
-            'date_range' => [
-                'start' => $request->start_date,
-                'end' => $request->end_date,
-            ],
-        ];
-
-        // Totales reutilizables: principal (sin interés), interés y total restante para terminar cuotas
-        $totalWithoutInterest = $payments->sum(function ($p) {
-            return $p->principal_portion ?? 0;
-        });
-
-        $totalInterest = $payments->sum(function ($p) {
-            return $p->interest_portion ?? 0;
-        });
-
-        $totalRemainingToFinish = $payments->sum(function ($p) {
-            // remaining_for_installment puede ser null si no hay número de cuota
-            return $p->remaining_for_installment ?? 0;
-        });
-
-        $summary['total_without_interest'] = round($totalWithoutInterest, 2);
-        $summary['total_interest'] = round($totalInterest, 2);
-        $summary['total_remaining_to_finish_installments'] = round($totalRemainingToFinish, 2);
-
+        // Preparar datos para vistas
         $data = [
-            'payments' => $payments,
-            'summary' => $summary,
-            'generated_at' => now(),
-            'generated_by' => $currentUser->name,
+            'payments' => collect($reportDTO->getPayments())->map(fn($p) => $p['_model']),
+            'payments_data' => $reportDTO->getPayments(),
+            'summary' => $reportDTO->getSummary(),
+            'generated_at' => $reportDTO->generated_at,
+            'generated_by' => $reportDTO->generated_by,
         ];
 
-        if ($request->input('format') === 'html') {
+        // Seleccionar formato
+        $format = $request->input('format', 'html');
+
+        if ($format === 'html') {
             return view('reports.payments', $data);
         }
 
-        if ($request->input('format') === 'json') {
+        if ($format === 'json') {
+            // ✅ CONSISTENCIA API: Reutiliza los mismos datos transformados del DTO
             return response()->json([
                 'success' => true,
-                'data' => $data,
+                'data' => [
+                    'payments' => PaymentResource::collection($data['payments']),
+                    'summary' => $reportDTO->getSummary(),
+                    'generated_at' => $reportDTO->generated_at,
+                    'generated_by' => $reportDTO->generated_by,
+                ],
                 'message' => 'Datos del reporte de pagos obtenidos exitosamente',
             ]);
         }
 
-        if ($request->input('format') === 'excel') {
+        if ($format === 'excel') {
             $filename = 'reporte-pagos-'.now()->format('Y-m-d-H-i-s').'.xlsx';
-
-            return Excel::download(new PaymentsExport($query, $summary), $filename);
+            return Excel::download(
+                new PaymentsExport($data['payments'], $reportDTO->getSummary()),
+                $filename
+            );
         }
 
+        // PDF
         $pdf = Pdf::loadView('reports.payments', $data);
         $filename = 'reporte-pagos-'.now()->format('Y-m-d-H-i-s').'.pdf';
-
         return $pdf->download($filename);
     }
 
     /**
      * Generate credits report
+     *
+     * ✅ ARQUITECTURA CENTRALIZADA - OPCIÓN 3
+     * Delega la lógica completa al CreditReportService
      */
     public function creditsReport(Request $request)
     {
@@ -130,98 +123,61 @@ class ReportController extends Controller
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
 
-        $query = Credit::with(['client', 'createdBy', 'deliveredBy', 'payments', 'cashBalance']);
+        // ✅ Delegamos al servicio
+        $service = new CreditReportService();
+        $reportDTO = $service->generateReport(
+            filters: $request->only(['status', 'cobrador_id', 'client_id', 'created_by', 'delivered_by', 'start_date', 'end_date']),
+            currentUser: Auth::user(),
+        );
 
-        // Apply filters
-        if ($request->status) {
-            $query->where('status', $request->status);
-        }
-
-        // Filtro flexible: cobrador puede ser creador o quien entregó
-        if ($request->cobrador_id) {
-            $query->where(function ($q) use ($request) {
-                $q->where('created_by', $request->cobrador_id)
-                    ->orWhere('delivered_by', $request->cobrador_id);
-            });
-        }
-
-        // Filtros específicos
-        if ($request->created_by) {
-            $query->where('created_by', $request->created_by);
-        }
-
-        if ($request->delivered_by) {
-            $query->where('delivered_by', $request->delivered_by);
-        }
-
-        if ($request->client_id) {
-            $query->where('client_id', $request->client_id);
-        }
-
-        // Filtro por fechas de creación
-        if ($request->start_date) {
-            $query->whereDate('created_at', '>=', $request->start_date);
-        }
-
-        if ($request->end_date) {
-            $query->whereDate('created_at', '<=', $request->end_date);
-        }
-
-        // Apply role-based visibility
-        $currentUser = Auth::user();
-        if ($currentUser->hasRole('cobrador')) {
-            $query->where('created_by', $currentUser->id);
-        } elseif ($currentUser->hasRole('manager')) {
-            $query->whereHas('createdBy', function ($q) use ($currentUser) {
-                $q->where('assigned_manager_id', $currentUser->id);
-            });
-        }
-
-        $credits = $query->orderBy('created_at', 'desc')->get();
-
-        // Calculate summary
-        $summary = [
-            'total_credits' => $credits->count(),
-            'total_amount' => $credits->sum('amount'),
-            'active_credits' => $credits->where('status', 'active')->count(),
-            'completed_credits' => $credits->where('status', 'completed')->count(),
-            'total_balance' => $credits->sum('balance'),
-            'pending_amount' => $credits->sum('balance'),
-        ];
-
+        // Preparar datos para vistas
         $data = [
-            'credits' => $credits,
-            'summary' => $summary,
-            'generated_at' => now(),
-            'generated_by' => $currentUser->name,
+            'credits' => collect($reportDTO->getCredits())->map(fn($c) => $c['_model']),
+            'credits_data' => $reportDTO->getCredits(),
+            'summary' => $reportDTO->getSummary(),
+            'generated_at' => $reportDTO->generated_at,
+            'generated_by' => $reportDTO->generated_by,
         ];
 
-        if ($request->input('format') === 'html') {
+        // Seleccionar formato
+        $format = $request->input('format', 'html');
+
+        if ($format === 'html') {
             return view('reports.credits', $data);
         }
 
-        if ($request->input('format') === 'json') {
+        if ($format === 'json') {
+            // ✅ CONSISTENCIA API: Usa CreditResource para estructura consistente
             return response()->json([
                 'success' => true,
-                'data' => $data,
+                'data' => [
+                    'credits' => CreditResource::collection($data['credits']),
+                    'summary' => $reportDTO->getSummary(),
+                    'generated_at' => $reportDTO->generated_at,
+                    'generated_by' => $reportDTO->generated_by,
+                ],
                 'message' => 'Datos del reporte de créditos obtenidos exitosamente',
             ]);
         }
 
-        if ($request->input('format') === 'excel') {
+        if ($format === 'excel') {
             $filename = 'reporte-creditos-'.now()->format('Y-m-d-H-i-s').'.xlsx';
-
-            return Excel::download(new CreditsExport($query, $summary), $filename);
+            return Excel::download(
+                new CreditsExport($data['credits']->map(fn($c) => $c), $reportDTO->getSummary()),
+                $filename
+            );
         }
 
+        // PDF
         $pdf = Pdf::loadView('reports.credits', $data);
         $filename = 'reporte-creditos-'.now()->format('Y-m-d-H-i-s').'.pdf';
-
         return $pdf->download($filename);
     }
 
     /**
      * Generate users report
+     *
+     * ✅ ARQUITECTURA CENTRALIZADA - OPCIÓN 3
      */
     public function usersReport(Request $request)
     {
@@ -231,6 +187,55 @@ class ReportController extends Controller
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
 
+        // ✅ Delegamos al servicio
+        $service = new UserReportService();
+        $reportDTO = $service->generateReport(
+            filters: $request->only(['role', 'client_category']),
+            currentUser: Auth::user(),
+        );
+
+        $data = [
+            'users' => collect($reportDTO->getUsers())->map(fn($u) => $u['_model']),
+            'users_data' => $reportDTO->getUsers(),
+            'summary' => $reportDTO->getSummary(),
+            'generated_at' => $reportDTO->generated_at,
+            'generated_by' => $reportDTO->generated_by,
+        ];
+
+        $format = $request->input('format', 'html');
+
+        if ($format === 'html') {
+            return view('reports.users', $data);
+        }
+
+        if ($format === 'json') {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'users' => UserResource::collection($data['users']),
+                    'summary' => $reportDTO->getSummary(),
+                    'generated_at' => $reportDTO->generated_at,
+                    'generated_by' => $reportDTO->generated_by,
+                ],
+                'message' => 'Datos del reporte de usuarios obtenidos exitosamente',
+            ]);
+        }
+
+        if ($format === 'excel') {
+            $filename = 'reporte-usuarios-'.now()->format('Y-m-d-H-i-s').'.xlsx';
+            return Excel::download(new UsersExport($data['users'], $reportDTO->getSummary()), $filename);
+        }
+
+        $pdf = Pdf::loadView('reports.users', $data);
+        $filename = 'reporte-usuarios-'.now()->format('Y-m-d-H-i-s').'.pdf';
+        return $pdf->download($filename);
+    }
+
+    /**
+     * DEPRECATED - Old users report code
+     */
+    private function _old_usersReport(Request $request)
+    {
         $query = User::with(['roles']);
 
         // Role-based visibility
@@ -314,6 +319,9 @@ class ReportController extends Controller
 
     /**
      * Generate cash balances report
+     *
+     * ✅ ARQUITECTURA CENTRALIZADA - OPCIÓN 3
+     * Delega la lógica completa al BalanceReportService
      */
     public function balancesReport(Request $request)
     {
@@ -326,104 +334,54 @@ class ReportController extends Controller
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
 
-        $query = CashBalance::with(['cobrador', 'credits.client']);
+        // ✅ Delegamos al servicio
+        $service = new BalanceReportService();
+        $reportDTO = $service->generateReport(
+            filters: $request->only(['start_date', 'end_date', 'cobrador_id', 'status', 'with_discrepancies']),
+            currentUser: Auth::user(),
+        );
 
-        // Apply filters
-        if ($request->start_date) {
-            $query->whereDate('date', '>=', $request->start_date);
-        }
-
-        if ($request->end_date) {
-            $query->whereDate('date', '<=', $request->end_date);
-        }
-
-        if ($request->cobrador_id) {
-            $query->where('cobrador_id', $request->cobrador_id);
-        }
-
-        if ($request->status) {
-            $query->where('status', $request->status);
-        }
-
-        // Apply role-based visibility
-        $currentUser = Auth::user();
-        if ($currentUser->hasRole('cobrador')) {
-            $query->where('cobrador_id', $currentUser->id);
-        } elseif ($currentUser->hasRole('manager')) {
-            $query->whereHas('cobrador', function ($q) use ($currentUser) {
-                $q->where('assigned_manager_id', $currentUser->id);
-            });
-        }
-
-        $balances = $query->orderBy('date', 'desc')->get();
-
-        // Filtrar cajas con discrepancias si se solicita
-        if ($request->with_discrepancies) {
-            $balances = $balances->filter(function ($balance) {
-                $expected = $balance->initial_amount + $balance->collected_amount - $balance->lent_amount;
-                $difference = abs($balance->final_amount - $expected);
-
-                return $difference > 0.01; // Tolerancia de 1 centavo
-            });
-        }
-
-        // Calculate summary con desglose mejorado
-        $totalDiscrepancies = 0;
-        $balancesWithIssues = 0;
-
-        foreach ($balances as $balance) {
-            $expected = $balance->initial_amount + $balance->collected_amount - $balance->lent_amount;
-            $difference = $balance->final_amount - $expected;
-
-            if (abs($difference) > 0.01) {
-                $totalDiscrepancies += abs($difference);
-                $balancesWithIssues++;
-            }
-        }
-
-        $summary = [
-            'total_records' => $balances->count(),
-            'total_initial' => round($balances->sum('initial_amount'), 2),
-            'total_collected' => round($balances->sum('collected_amount'), 2),
-            'total_lent' => round($balances->sum('lent_amount'), 2),
-            'total_final' => round($balances->sum('final_amount'), 2),
-            'total_credits_delivered' => $balances->sum(fn ($b) => $b->credits->count()),
-            'total_discrepancies' => round($totalDiscrepancies, 2),
-            'balances_with_issues' => $balancesWithIssues,
-            'balances_ok' => $balances->count() - $balancesWithIssues,
-            'open_balances' => $balances->where('status', 'open')->count(),
-            'closed_balances' => $balances->where('status', 'closed')->count(),
-            'reconciled_balances' => $balances->where('status', 'reconciled')->count(),
-        ];
-
+        // Preparar datos para vistas
         $data = [
-            'balances' => $balances,
-            'summary' => $summary,
-            'generated_at' => now(),
-            'generated_by' => Auth::user()->name,
+            'balances' => collect($reportDTO->getBalances())->map(fn($b) => $b['_model']),
+            'balances_data' => $reportDTO->getBalances(),
+            'summary' => $reportDTO->getSummary(),
+            'generated_at' => $reportDTO->generated_at,
+            'generated_by' => $reportDTO->generated_by,
         ];
 
-        if ($request->input('format') === 'html') {
+        // Seleccionar formato
+        $format = $request->input('format', 'html');
+
+        if ($format === 'html') {
             return view('reports.balances', $data);
         }
 
-        if ($request->input('format') === 'json') {
+        if ($format === 'json') {
+            // ✅ CONSISTENCIA API: Usa BalanceResource para estructura consistente
             return response()->json([
                 'success' => true,
-                'data' => $data,
+                'data' => [
+                    'balances' => BalanceResource::collection($data['balances']),
+                    'summary' => $reportDTO->getSummary(),
+                    'generated_at' => $reportDTO->generated_at,
+                    'generated_by' => $reportDTO->generated_by,
+                ],
                 'message' => 'Datos del reporte de balances obtenidos exitosamente',
             ]);
         }
 
-        if ($request->input('format') === 'excel') {
+        if ($format === 'excel') {
             $filename = 'reporte-balances-'.now()->format('Y-m-d-H-i-s').'.xlsx';
-
-            return Excel::download(new BalancesExport($balances, $summary), $filename);
+            return Excel::download(
+                new BalancesExport($data['balances'], $reportDTO->getSummary()),
+                $filename
+            );
         }
 
+        // PDF
         $pdf = Pdf::loadView('reports.balances', $data);
         $filename = 'reporte-balances-'.now()->format('Y-m-d-H-i-s').'.pdf';
-
         return $pdf->download($filename);
     }
 
