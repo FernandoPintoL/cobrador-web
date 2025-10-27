@@ -37,10 +37,3 @@ class ReportBaseDTO
         return $this->summary;
     }
 }
-
-// Aliases para tipado específico
-class CashFlowForecastDTO extends ReportBaseDTO {}
-class WaitingListDTO extends ReportBaseDTO {}
-class DailyActivityDTO extends ReportBaseDTO {}
-class PortfolioDTO extends ReportBaseDTO {}
-class CommissionsDTO extends ReportBaseDTO {}

@@ -98,10 +98,26 @@ class CreditReportService
 
     /**
      * Transforma cada Credit a estructura con datos completos
+     * Incluye cálculo avanzado de estado de pago basado en cuotas pagadas vs esperadas
      */
     private function transformCredits(Collection $credits): Collection
     {
         return $credits->map(function ($credit) {
+            // Calcular estado de pago avanzado
+            $totalInstallments = $credit->total_installments;
+            $completedInstallments = $credit->getCompletedInstallmentsCount();
+            $expectedInstallments = $credit->getExpectedInstallments();
+            $pendingInstallments = $credit->getPendingInstallments();
+
+            // Determinar estado de pago
+            $paymentStatus = $this->calculatePaymentStatus(
+                $completedInstallments,
+                $expectedInstallments,
+                $totalInstallments,
+                $pendingInstallments,
+                $credit->status
+            );
+
             return [
                 'id' => $credit->id,
                 'client_id' => $credit->client_id,
@@ -117,13 +133,85 @@ class CreditReportService
                 'delivered_by_id' => $credit->delivered_by,
                 'delivered_by_name' => $credit->deliveredBy?->name ?? 'N/A',
                 'total_installments' => $credit->total_installments,
-                'pending_installments' => $credit->getPendingInstallments(),
+                'completed_installments' => $completedInstallments,
+                'expected_installments' => $expectedInstallments,
+                'pending_installments' => $pendingInstallments,
+                'installments_overdue' => max(0, $expectedInstallments - $completedInstallments),
                 'payments_count' => $credit->payments->count(),
                 'created_at' => $credit->created_at->format('Y-m-d H:i:s'),
                 'created_at_formatted' => $credit->created_at->format('d/m/Y'),
+                'payment_status' => $paymentStatus['status'],
+                'payment_status_icon' => $paymentStatus['icon'],
+                'payment_status_color' => $paymentStatus['color'],
+                'payment_status_label' => $paymentStatus['label'],
                 '_model' => $credit,
             ];
         });
+    }
+
+    /**
+     * Calcula el estado de pago basado en múltiples criterios
+     *
+     * Estados:
+     * - completed: Todas las cuotas pagadas
+     * - current: Al día (cuotas pagadas = cuotas esperadas)
+     * - ahead: Adelantado (cuotas pagadas > cuotas esperadas)
+     * - warning: Retraso bajo (1-3 cuotas atrasadas)
+     * - danger: Retraso alto (>3 cuotas atrasadas)
+     */
+    private function calculatePaymentStatus(int $completed, int $expected, int $total, int $pending, string $creditStatus): array
+    {
+        // Si el crédito está completado o todas las cuotas fueron pagadas
+        if ($creditStatus === 'completed' || $pending === 0) {
+            return [
+                'status' => 'completed',
+                'icon' => '✓',
+                'color' => 'success',
+                'label' => 'Completado',
+            ];
+        }
+
+        // Calcular cuotas atrasadas
+        $overdueInstallments = max(0, $expected - $completed);
+
+        // Si está al día o adelantado
+        if ($overdueInstallments === 0) {
+            if ($completed > $expected) {
+                // Adelantado
+                return [
+                    'status' => 'ahead',
+                    'icon' => '↑',
+                    'color' => 'info',
+                    'label' => 'Adelantado',
+                ];
+            } else {
+                // Al día
+                return [
+                    'status' => 'current',
+                    'icon' => '→',
+                    'color' => 'primary',
+                    'label' => 'Al día',
+                ];
+            }
+        }
+
+        // Retraso bajo (1-3 cuotas)
+        if ($overdueInstallments >= 1 && $overdueInstallments <= 3) {
+            return [
+                'status' => 'warning',
+                'icon' => '⚠',
+                'color' => 'warning',
+                'label' => "Retraso bajo ({$overdueInstallments} cuota" . ($overdueInstallments > 1 ? 's' : '') . ")",
+            ];
+        }
+
+        // Retraso alto (>3 cuotas)
+        return [
+            'status' => 'danger',
+            'icon' => '✕',
+            'color' => 'danger',
+            'label' => "Retraso alto ({$overdueInstallments} cuotas)",
+        ];
     }
 
     /**
@@ -150,6 +238,8 @@ class CreditReportService
             'pending_amount_formatted' => 'Bs ' . number_format($credits->sum('balance'), 2),
             'average_amount' => (float) round($credits->avg('amount') ?? 0, 2),
             'average_amount_formatted' => 'Bs ' . number_format($credits->avg('amount') ?? 0, 2),
+            'total_paid' => (float) round($credits->sum('total_paid') ?? 0, 2),
+            'total_paid_formatted' => 'Bs ' . number_format($credits->sum('total_paid') ?? 0, 2),
         ];
     }
 }

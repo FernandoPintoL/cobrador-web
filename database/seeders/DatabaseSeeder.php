@@ -59,6 +59,11 @@ class DatabaseSeeder extends Seeder
             'created_by' => $manager->id,
         ]);
 
+        // Ejecutar seeder de créditos y pagos
+        $this->call([
+            CreditsAndPaymentsSeeder::class,
+        ]);
+
         // Crear usuarios de ejemplo con CI únicos
         /*User::factory(5)->sequence(fn ($sequence) => ['ci' => '10000000' . $sequence->index])->create()->each(function ($user) {
             $user->assignRole('cobrador');

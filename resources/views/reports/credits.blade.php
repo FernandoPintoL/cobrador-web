@@ -16,58 +16,47 @@
             'Créditos activos' => $summary['active_credits'],
             'Créditos completados' => $summary['completed_credits'],
             'Balance pendiente' => 'Bs ' . number_format($summary['total_balance'], 2),
-            'Total invertido' => 'Bs ' . number_format($summary['total_amount'] + ($summary['total_amount'] * 0.1), 2),
+            'Total pagado' => 'Bs ' . number_format($summary['total_paid'] ?? 0, 2),
         ],
     ])
 
     @php
-        // Preparar headers de tabla
+        // Preparar headers de tabla - Información completa
         $headers = [
-            'ID', 'Cliente', 'Cobrador', 'Monto', 'Interés', 'Total',
-            'Pagado', 'Balance', 'Cuotas', 'Completadas', 'Vencidas', 'Estado', 'Inicio'
+            'ID', 'Cliente', 'Creador/Cobrador', 'Entregó', 'Monto', 'Interés', 'Total',
+            'Por Cuota', 'Pagado', 'Balance', 'Completadas', 'Esperadas', 'Vencidas',
+            'Estado', 'Frecuencia', 'Vencimiento', 'Inicio'
         ];
 
-        // Preparar función para generar clase de fila según cuotas vencidas
-        $getRowClass = function($credit) {
-            $totalAmount = $credit->total_amount ?? ($credit->amount * 1.1);
-            $completedInstallments = $credit->getCompletedInstallmentsCount();
-            $expectedInstallments = $credit->getExpectedInstallments();
-            $pendingInstallments = $expectedInstallments - $completedInstallments;
-
-            if ($pendingInstallments <= 0) {
-                return 'row-clean';
-            } elseif ($pendingInstallments <= 3) {
-                return 'row-warning';
-            }
-            return 'row-danger';
-        };
-
-        // Preparar vista de datos personalizada
+        // Los datos ya vienen transformados con payment_status calculado en el servicio
         $credits_custom = $credits->map(function($credit) {
-            $totalAmount = $credit->total_amount ?? ($credit->amount * 1.1);
-            $paidAmount = $credit->total_paid ?? ($totalAmount - $credit->balance);
-            $completedInstallments = $credit->getCompletedInstallmentsCount();
-            $expectedInstallments = $credit->getExpectedInstallments();
-            $pendingInstallments = $expectedInstallments - $completedInstallments;
+            // Convertir a array si es objeto
+            $creditArray = is_array($credit) ? $credit : (array)$credit;
 
+            // Los campos ya están calculados por el servicio
+            $completedInstallments = $creditArray['completed_installments'] ?? 0;
+            $totalInstallments = $creditArray['total_installments'] ?? 0;
+            $paymentStatus = $creditArray['payment_status'] ?? 'danger';
+            $paymentStatusIcon = $creditArray['payment_status_icon'] ?? '?';
+            $paymentStatusLabel = $creditArray['payment_status_label'] ?? 'Desconocido';
+
+            // Obtener información del modelo
+            $model = $creditArray['_model'] ?? null;
+            $frequency = $model ? $model->frequency : 'N/A';
+            $endDate = $model ? $model->end_date->format('d/m/Y') : 'N/A';
+            $installmentAmount = $model ? number_format($model->installment_amount, 2) : '0.00';
+
+            // Crear objeto con todos los datos necesarios
             return (object) array_merge(
-                $credit->toArray(),
+                $creditArray,
                 [
-                    'client_name' => $credit->client->name ?? 'N/A',
-                    'cobrador_name' => $credit->createdBy->name ?? 'N/A',
-                    'interest_amount' => $totalAmount - $credit->amount,
-                    'total_with_interest' => $totalAmount,
-                    'paid_amount' => $paidAmount,
-                    'total_installments' => $expectedInstallments,
-                    'completed_installments' => $completedInstallments,
-                    'pending_installments' => $pendingInstallments,
-                    'pending_display' => $pendingInstallments <= 0
-                        ? '<span class="icon icon-clean">✓</span> ' . $pendingInstallments
-                        : ($pendingInstallments <= 3
-                            ? '<span class="icon icon-warning">⚠</span> ' . $pendingInstallments
-                            : '<span class="icon icon-danger">✕</span> ' . $pendingInstallments),
-                    'status_display' => substr(str_replace('_', ' ', $credit->status), 0, 10),
-                    'start_date_formatted' => $credit->start_date ? \Carbon\Carbon::parse($credit->start_date)->format('d/m/y') : 'N/A',
+                    'payment_row_class' => 'payment-' . $paymentStatus,
+                    'payment_status_display' => '<span class="payment-icon">' . $paymentStatusIcon . '</span> ' . $paymentStatusLabel,
+                    'frequency_display' => ucfirst(str_replace('_', ' ', $frequency)),
+                    'installment_amount_formatted' => 'Bs ' . $installmentAmount,
+                    'end_date_formatted' => $endDate,
+                    'expected_installments' => $creditArray['expected_installments'] ?? 0,
+                    'installments_overdue' => $creditArray['installments_overdue'] ?? 0,
                 ]
             );
         });
@@ -84,24 +73,26 @@
         </thead>
         <tbody>
             @forelse($credits_custom as $credit)
-            <tr class="{{ $getRowClass($credit) }}">
-                <td>{{ $credit->id }}</td>
+            <tr class="{{ $credit->payment_row_class }}">
+                <td style="text-align: center; font-weight: bold;">{{ $credit->id }}</td>
                 <td>{{ $credit->client_name }}</td>
-                <td>{{ $credit->cobrador_name }}</td>
-                <td>Bs {{ number_format($credit->amount, 2) }}</td>
-                <td>Bs {{ number_format($credit->interest_amount, 2) }}</td>
-                <td>Bs {{ number_format($credit->total_with_interest, 2) }}</td>
-                <td>Bs {{ number_format($credit->paid_amount, 2) }}</td>
-                <td>Bs {{ number_format($credit->balance, 2) }}</td>
-                <td>{{ $credit->total_installments }}</td>
-                <td>{{ $credit->completed_installments }}</td>
+                <td style="font-size: 9px;">{{ $credit->created_by_name ?? 'N/A' }}</td>
+                <td style="font-size: 9px;">{{ $credit->delivered_by_name ?? 'N/A' }}</td>
+                <td>{{ $credit->amount_formatted ?? ('Bs ' . number_format($credit->amount, 2)) }}</td>
+                <td>Bs {{ number_format(($credit->_model->total_amount ?? ($credit->amount * 1.1)) - $credit->amount, 2) }}</td>
+                <td>Bs {{ number_format($credit->_model->total_amount ?? ($credit->amount * 1.1), 2) }}</td>
+                <td>{{ $credit->installment_amount_formatted }}</td>
+                <td>Bs {{ number_format($credit->_model->total_paid ?? 0, 2) }}</td>
+                <td>{{ $credit->balance_formatted ?? ('Bs ' . number_format($credit->balance, 2)) }}</td>
+                <td style="text-align: center;">{{ $credit->completed_installments }}</td>
+                <td style="text-align: center;">{{ $credit->expected_installments }}</td>
+                <td style="text-align: center; color: #FF0000; font-weight: bold;">{{ $credit->installments_overdue }}</td>
                 <td style="text-align: center;">
-                    {!! $credit->pending_display !!}
+                    {!! $credit->payment_status_display !!}
                 </td>
-                <td class="status-{{ $credit->status }}">
-                    {{ $credit->status_display }}
-                </td>
-                <td>{{ $credit->start_date_formatted }}</td>
+                <td style="font-size: 9px;">{{ $credit->frequency_display }}</td>
+                <td style="text-align: center; font-size: 9px;">{{ $credit->end_date_formatted }}</td>
+                <td>{{ $credit->created_at_formatted ?? 'N/A' }}</td>
             </tr>
             @empty
             <tr>

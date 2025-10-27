@@ -1,0 +1,391 @@
+{
+  "success": true,
+  "data": [
+    {
+      "cluster_id": "19.4326,-99.1332",
+      "location": {
+        "latitude": 19.4326,
+        "longitude": -99.1332,
+        "address": "Calle Principal 123, Apartamento 5A"
+      },
+      "cluster_summary": {
+        "total_people": 2,
+        "total_credits": 4,
+        "total_amount": 3400.00,
+        "total_balance": 2100.00,
+        "overdue_count": 1,
+        "overdue_amount": 500.00,
+        "active_count": 4,
+        "active_amount": 3400.00,
+        "completed_count": 0,
+        "completed_amount": 0.00
+      },
+      "cluster_status": "overdue",
+      "people": [
+        {
+          "person_id": 1,
+          "name": "Juan García López",
+          "phone": "555-1234",
+          "email": "juan.garcia@email.com",
+          "address": "Calle Principal 123, Apto 5A",
+          "client_category": "A",
+          "total_credits": 2,
+          "total_amount": 1700.00,
+          "total_paid": 300.00,
+          "total_balance": 1400.00,
+          "person_status": "overdue",
+          "payment_stats": {
+            "total_payments": 5,
+            "paid_payments": 3,
+            "pending_payments": 1,
+            "overdue_payments": 1,
+            "total_paid_amount": 300.00,
+            "total_pending_amount": 100.00,
+            "total_overdue_amount": 200.00,
+            "last_payment": {
+              "date": "2024-10-20",
+              "amount": 100.00,
+              "method": "cash",
+              "status": "paid"
+            }
+          },
+          "credits": [
+            {
+              "credit_id": 101,
+              "amount": 800.00,
+              "balance": 500.00,
+              "paid_amount": 300.00,
+              "payment_percentage": 37.50,
+              "status": "active",
+              "start_date": "2024-01-15",
+              "end_date": "2024-12-31",
+              "days_until_due": 0,
+              "overdue_days": 5,
+              "next_payment_due": {
+                "date": "2024-11-20",
+                "amount": 66.67,
+                "installment": 2
+              },
+              "last_payment": {
+                "date": "2024-10-20",
+                "amount": 100.00,
+                "method": "cash",
+                "status": "paid"
+              },
+              "payment_stats": {
+                "total_payments": 3,
+                "paid_payments": 3,
+                "pending_payments": 0,
+                "overdue_payments": 0
+              },
+              "recent_payments": [
+                {
+                  "payment_id": 501,
+                  "amount": 100.00,
+                  "date": "2024-10-20",
+                  "method": "cash",
+                  "status": "paid",
+                  "installment_num": 1
+                },
+                {
+                  "payment_id": 500,
+                  "amount": 100.00,
+                  "date": "2024-09-15",
+                  "method": "transfer",
+                  "status": "paid",
+                  "installment_num": 0
+                },
+                {
+                  "payment_id": 499,
+                  "amount": 100.00,
+                  "date": "2024-08-10",
+                  "method": "qr",
+                  "status": "paid",
+                  "installment_num": -1
+                }
+              ]
+            },
+            {
+              "credit_id": 102,
+              "amount": 900.00,
+              "balance": 900.00,
+              "paid_amount": 0.00,
+              "payment_percentage": 0.00,
+              "status": "active",
+              "start_date": "2024-09-01",
+              "end_date": "2025-08-31",
+              "days_until_due": 315,
+              "overdue_days": 0,
+              "next_payment_due": {
+                "date": "2024-11-01",
+                "amount": 75.00,
+                "installment": 1
+              },
+              "last_payment": null,
+              "payment_stats": {
+                "total_payments": 0,
+                "paid_payments": 0,
+                "pending_payments": 0,
+                "overdue_payments": 0
+              },
+              "recent_payments": []
+            }
+          ]
+        },
+        {
+          "person_id": 2,
+          "name": "María García López",
+          "phone": "555-5678",
+          "email": "maria.garcia@email.com",
+          "address": "Calle Principal 123, Apto 5A",
+          "client_category": "B",
+          "total_credits": 2,
+          "total_amount": 1700.00,
+          "total_paid": 400.00,
+          "total_balance": 1300.00,
+          "person_status": "pending",
+          "payment_stats": {
+            "total_payments": 6,
+            "paid_payments": 4,
+            "pending_payments": 2,
+            "overdue_payments": 0,
+            "total_paid_amount": 400.00,
+            "total_pending_amount": 200.00,
+            "total_overdue_amount": 0.00,
+            "last_payment": {
+              "date": "2024-10-18",
+              "amount": 150.00,
+              "method": "transfer",
+              "status": "paid"
+            }
+          },
+          "credits": [
+            {
+              "credit_id": 103,
+              "amount": 700.00,
+              "balance": 400.00,
+              "paid_amount": 300.00,
+              "payment_percentage": 42.86,
+              "status": "active",
+              "start_date": "2024-02-20",
+              "end_date": "2024-11-20",
+              "days_until_due": 24,
+              "overdue_days": 0,
+              "next_payment_due": {
+                "date": "2024-11-20",
+                "amount": 58.33,
+                "installment": 1
+              },
+              "last_payment": {
+                "date": "2024-10-18",
+                "amount": 100.00,
+                "method": "transfer",
+                "status": "paid"
+              },
+              "payment_stats": {
+                "total_payments": 3,
+                "paid_payments": 3,
+                "pending_payments": 0,
+                "overdue_payments": 0
+              },
+              "recent_payments": [
+                {
+                  "payment_id": 601,
+                  "amount": 100.00,
+                  "date": "2024-10-18",
+                  "method": "transfer",
+                  "status": "paid",
+                  "installment_num": 0
+                },
+                {
+                  "payment_id": 600,
+                  "amount": 100.00,
+                  "date": "2024-09-20",
+                  "method": "cash",
+                  "status": "paid",
+                  "installment_num": -1
+                },
+                {
+                  "payment_id": 599,
+                  "amount": 100.00,
+                  "date": "2024-08-20",
+                  "method": "qr",
+                  "status": "paid",
+                  "installment_num": -2
+                }
+              ]
+            },
+            {
+              "credit_id": 104,
+              "amount": 1000.00,
+              "balance": 900.00,
+              "paid_amount": 100.00,
+              "payment_percentage": 10.00,
+              "status": "active",
+              "start_date": "2024-08-10",
+              "end_date": "2025-07-10",
+              "days_until_due": 257,
+              "overdue_days": 0,
+              "next_payment_due": {
+                "date": "2024-11-10",
+                "amount": 83.33,
+                "installment": 1
+              },
+              "last_payment": {
+                "date": "2024-10-18",
+                "amount": 50.00,
+                "method": "transfer",
+                "status": "pending"
+              },
+              "payment_stats": {
+                "total_payments": 2,
+                "paid_payments": 0,
+                "pending_payments": 2,
+                "overdue_payments": 0
+              },
+              "recent_payments": [
+                {
+                  "payment_id": 701,
+                  "amount": 50.00,
+                  "date": "2024-10-18",
+                  "method": "transfer",
+                  "status": "pending",
+                  "installment_num": 1
+                },
+                {
+                  "payment_id": 700,
+                  "amount": 50.00,
+                  "date": "2024-09-10",
+                  "method": "cash",
+                  "status": "pending",
+                  "installment_num": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cluster_id": "19.4327,-99.1333",
+      "location": {
+        "latitude": 19.4327,
+        "longitude": -99.1333,
+        "address": "Avenida Reforma 456, Casa 12"
+      },
+      "cluster_summary": {
+        "total_people": 1,
+        "total_credits": 1,
+        "total_amount": 2000.00,
+        "total_balance": 2000.00,
+        "overdue_count": 0,
+        "overdue_amount": 0.00,
+        "active_count": 1,
+        "active_amount": 2000.00,
+        "completed_count": 0,
+        "completed_amount": 0.00
+      },
+      "cluster_status": "paid",
+      "people": [
+        {
+          "person_id": 3,
+          "name": "Carlos Rodríguez Pérez",
+          "phone": "555-9999",
+          "email": "carlos.rodriguez@email.com",
+          "address": "Avenida Reforma 456, Casa 12",
+          "client_category": "B",
+          "total_credits": 1,
+          "total_amount": 2000.00,
+          "total_paid": 2000.00,
+          "total_balance": 0.00,
+          "person_status": "paid",
+          "payment_stats": {
+            "total_payments": 12,
+            "paid_payments": 12,
+            "pending_payments": 0,
+            "overdue_payments": 0,
+            "total_paid_amount": 2000.00,
+            "total_pending_amount": 0.00,
+            "total_overdue_amount": 0.00,
+            "last_payment": {
+              "date": "2024-10-25",
+              "amount": 166.67,
+              "method": "transfer",
+              "status": "paid"
+            }
+          },
+          "credits": [
+            {
+              "credit_id": 105,
+              "amount": 2000.00,
+              "balance": 0.00,
+              "paid_amount": 2000.00,
+              "payment_percentage": 100.00,
+              "status": "completed",
+              "start_date": "2023-11-01",
+              "end_date": "2024-10-31",
+              "days_until_due": 0,
+              "overdue_days": 0,
+              "next_payment_due": null,
+              "last_payment": {
+                "date": "2024-10-25",
+                "amount": 166.67,
+                "method": "transfer",
+                "status": "paid"
+              },
+              "payment_stats": {
+                "total_payments": 12,
+                "paid_payments": 12,
+                "pending_payments": 0,
+                "overdue_payments": 0
+              },
+              "recent_payments": [
+                {
+                  "payment_id": 801,
+                  "amount": 166.67,
+                  "date": "2024-10-25",
+                  "method": "transfer",
+                  "status": "paid",
+                  "installment_num": 12
+                },
+                {
+                  "payment_id": 800,
+                  "amount": 166.67,
+                  "date": "2024-09-25",
+                  "method": "transfer",
+                  "status": "paid",
+                  "installment_num": 11
+                },
+                {
+                  "payment_id": 799,
+                  "amount": 166.67,
+                  "date": "2024-08-25",
+                  "method": "cash",
+                  "status": "paid",
+                  "installment_num": 10
+                },
+                {
+                  "payment_id": 798,
+                  "amount": 166.67,
+                  "date": "2024-07-25",
+                  "method": "transfer",
+                  "status": "paid",
+                  "installment_num": 9
+                },
+                {
+                  "payment_id": 797,
+                  "amount": 166.67,
+                  "date": "2024-06-25",
+                  "method": "transfer",
+                  "status": "paid",
+                  "installment_num": 8
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "message": "Clusters de ubicaciones obtenidos exitosamente"
+}

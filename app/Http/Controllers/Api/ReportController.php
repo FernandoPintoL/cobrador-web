@@ -1,18 +1,12 @@
 <?php
-
 namespace App\Http\Controllers\Api;
 
-use App\DTOs\CreditReportDTO;
-use App\DTOs\PaymentReportDTO;
 use App\Exports\BalancesExport;
 use App\Exports\CreditsExport;
+use App\Exports\OverdueExport;
 use App\Exports\PaymentsExport;
 use App\Exports\UsersExport;
 use App\Http\Controllers\Controller;
-use App\Http\Resources\BalanceResource;
-use App\Http\Resources\CreditResource;
-use App\Http\Resources\PaymentResource;
-use App\Http\Resources\UserResource;
 use App\Models\Credit;
 use App\Models\User;
 use App\Services\BalanceReportService;
@@ -103,19 +97,31 @@ class ReportController extends Controller
         // Por defecto, usar ruta basada en nombre del reporte
         $viewPath = $viewPath ?? "reports.{$reportName}";
 
+        // Convertir generated_at a Carbon para que la vista pueda usar ->format()
+        $generatedAtCarbon = \Carbon\Carbon::parse($generatedAt);
+
+        // Array base de datos para la vista
+        $viewData = [
+            'data'         => $data,
+            'summary'      => $summary,
+            'generated_at' => $generatedAtCarbon,
+            'generated_by' => $generatedBy,
+            // Variables con nombres específicos para cada reporte
+            'credits'      => $data,
+            'payments'     => $data,
+            'users'        => $data,
+            'balances'     => $data,
+        ];
+
         return match ($format) {
-            'html' => view($viewPath, [
-                'data' => $data,
-                'summary' => $summary,
-                'generated_at' => $generatedAt,
-                'generated_by' => $generatedBy,
-            ]),
+            'html' => response(view($viewPath, $viewData), 200)
+                ->header('Content-Type', 'text/html; charset=utf-8'),
 
             'json' => response()->json([
                 'success' => true,
-                'data' => [
-                    'items' => $data,
-                    'summary' => $summary,
+                'data'    => [
+                    'items'        => $data,
+                    'summary'      => $summary,
                     'generated_at' => $generatedAt,
                     'generated_by' => $generatedBy,
                 ],
@@ -127,12 +133,7 @@ class ReportController extends Controller
                 "reporte-{$reportName}-" . now()->format('Y-m-d-H-i-s') . '.xlsx'
             ) : response()->json(['error' => 'Export class not provided'], 400),
 
-            'pdf' => Pdf::loadView($viewPath, [
-                'data' => $data,
-                'summary' => $summary,
-                'generated_at' => $generatedAt,
-                'generated_by' => $generatedBy,
-            ])->download("reporte-{$reportName}-" . now()->format('Y-m-d-H-i-s') . '.pdf'),
+            'pdf' => Pdf::loadView($viewPath, $viewData)->download("reporte-{$reportName}-" . now()->format('Y-m-d-H-i-s') . '.pdf'),
 
             default => response()->json(['error' => 'Invalid format'], 400),
         };
@@ -183,23 +184,23 @@ class ReportController extends Controller
     public function paymentsReport(Request $request)
     {
         $request->validate([
-            'start_date' => 'nullable|date',
-            'end_date' => 'nullable|date|after_or_equal:start_date',
+            'start_date'  => 'nullable|date',
+            'end_date'    => 'nullable|date|after_or_equal:start_date',
             'cobrador_id' => 'nullable|exists:users,id',
-            'format' => 'nullable|in:pdf,html,json,excel',
+            'format'      => 'nullable|in:pdf,html,json,excel',
         ]);
 
-        $service = new PaymentReportService();
+        $service   = new PaymentReportService();
         $reportDTO = $service->generateReport(
             filters: $request->only(['start_date', 'end_date', 'cobrador_id']),
             currentUser: Auth::user(),
         );
 
         $format = $this->getRequestedFormat($request);
-        $data = collect($reportDTO->getPayments())->map(fn($p) => $p['_model']);
+        $data   = collect($reportDTO->getPayments())->map(fn($p) => $p['_model']);
 
         return $this->respondWithReport(
-            reportName: 'pagos',
+            reportName: 'payments',
             format: $format,
             data: $data,
             summary: $reportDTO->getSummary(),
@@ -215,27 +216,27 @@ class ReportController extends Controller
     public function creditsReport(Request $request)
     {
         $request->validate([
-            'status' => 'nullable|in:active,completed,pending_approval,waiting_delivery,rejected',
-            'cobrador_id' => 'nullable|exists:users,id',
-            'client_id' => 'nullable|exists:users,id',
-            'created_by' => 'nullable|exists:users,id',
+            'status'       => 'nullable|in:active,completed,pending_approval,waiting_delivery,rejected',
+            'cobrador_id'  => 'nullable|exists:users,id',
+            'client_id'    => 'nullable|exists:users,id',
+            'created_by'   => 'nullable|exists:users,id',
             'delivered_by' => 'nullable|exists:users,id',
-            'start_date' => 'nullable|date',
-            'end_date' => 'nullable|date|after_or_equal:start_date',
-            'format' => 'nullable|in:pdf,html,json,excel',
+            'start_date'   => 'nullable|date',
+            'end_date'     => 'nullable|date|after_or_equal:start_date',
+            'format'       => 'nullable|in:pdf,html,json,excel',
         ]);
 
-        $service = new CreditReportService();
+        $service   = new CreditReportService();
         $reportDTO = $service->generateReport(
             filters: $request->only(['status', 'cobrador_id', 'client_id', 'created_by', 'delivered_by', 'start_date', 'end_date']),
             currentUser: Auth::user(),
         );
 
         $format = $this->getRequestedFormat($request);
-        $data = collect($reportDTO->getCredits())->map(fn($c) => $c['_model']);
+        $data   = $reportDTO->getCredits();
 
         return $this->respondWithReport(
-            reportName: 'créditos',
+            reportName: 'credits',
             format: $format,
             data: $data,
             summary: $reportDTO->getSummary(),
@@ -247,26 +248,37 @@ class ReportController extends Controller
 
     /**
      * Reporte de Usuarios
+     * ✅ SOLO DISPONIBLE PARA ADMIN/MANAGER
+     * Otras roles reciben 403 Forbidden
      */
     public function usersReport(Request $request)
     {
+        // ✅ Validación de autorización: solo admin/manager
+        $user = Auth::user();
+        if (! $user->hasAnyRole(['admin', 'manager'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permiso para acceder al reporte de usuarios',
+            ], 403);
+        }
+
         $request->validate([
-            'role' => 'nullable|string',
+            'role'            => 'nullable|string',
             'client_category' => 'nullable|in:A,B,C',
-            'format' => 'nullable|in:pdf,html,json,excel',
+            'format'          => 'nullable|in:pdf,html,json,excel',
         ]);
 
-        $service = new UserReportService();
+        $service   = new UserReportService();
         $reportDTO = $service->generateReport(
             filters: $request->only(['role', 'client_category']),
             currentUser: Auth::user(),
         );
 
         $format = $this->getRequestedFormat($request);
-        $data = collect($reportDTO->getUsers())->map(fn($u) => $u['_model']);
+        $data   = collect($reportDTO->getUsers())->map(fn($u) => $u['_model']);
 
         return $this->respondWithReport(
-            reportName: 'usuarios',
+            reportName: 'users',
             format: $format,
             data: $data,
             summary: $reportDTO->getSummary(),
@@ -282,22 +294,22 @@ class ReportController extends Controller
     public function balancesReport(Request $request)
     {
         $request->validate([
-            'start_date' => 'nullable|date',
-            'end_date' => 'nullable|date|after_or_equal:start_date',
-            'cobrador_id' => 'nullable|exists:users,id',
-            'status' => 'nullable|in:open,closed,reconciled',
+            'start_date'         => 'nullable|date',
+            'end_date'           => 'nullable|date|after_or_equal:start_date',
+            'cobrador_id'        => 'nullable|exists:users,id',
+            'status'             => 'nullable|in:open,closed,reconciled',
             'with_discrepancies' => 'nullable|boolean',
-            'format' => 'nullable|in:pdf,html,json,excel',
+            'format'             => 'nullable|in:pdf,html,json,excel',
         ]);
 
-        $service = new BalanceReportService();
+        $service   = new BalanceReportService();
         $reportDTO = $service->generateReport(
             filters: $request->only(['start_date', 'end_date', 'cobrador_id', 'status', 'with_discrepancies']),
             currentUser: Auth::user(),
         );
 
         $format = $this->getRequestedFormat($request);
-        $data = collect($reportDTO->getBalances())->map(fn($b) => $b['_model']);
+        $data   = collect($reportDTO->getBalances())->map(fn($b) => $b['_model']);
 
         return $this->respondWithReport(
             reportName: 'balances',
@@ -320,36 +332,37 @@ class ReportController extends Controller
     public function overdueReport(Request $request)
     {
         $request->validate([
-            'cobrador_id' => 'nullable|exists:users,id',
-            'client_id' => 'nullable|exists:users,id',
-            'client_category' => 'nullable|in:A,B,C',
-            'min_days_overdue' => 'nullable|integer|min:1',
-            'max_days_overdue' => 'nullable|integer|min:1',
+            'cobrador_id'        => 'nullable|exists:users,id',
+            'client_id'          => 'nullable|exists:users,id',
+            'client_category'    => 'nullable|in:A,B,C',
+            'min_days_overdue'   => 'nullable|integer|min:1',
+            'max_days_overdue'   => 'nullable|integer|min:1',
             'min_overdue_amount' => 'nullable|numeric|min:0',
-            'format' => 'nullable|in:pdf,html,json,excel',
+            'format'             => 'nullable|in:pdf,html,json,excel',
         ]);
 
         // ✅ Usa helper para caché + callback
         return $this->executeReportWithCache('overdue', function () use ($request) {
-            $service = new OverdueReportService();
+            $service   = new OverdueReportService();
             $reportDTO = $service->generateReport(
                 filters: $request->only([
                     'cobrador_id', 'client_id', 'client_category',
-                    'min_days_overdue', 'max_days_overdue', 'min_overdue_amount'
+                    'min_days_overdue', 'max_days_overdue', 'min_overdue_amount',
                 ]),
                 currentUser: Auth::user(),
             );
 
             $format = $this->getRequestedFormat($request);
-            $data = collect($reportDTO->getCredits())->map(fn($c) => $c['_model']);
+            $data   = collect($reportDTO->getCredits())->map(fn($c) => $c['_model']);
 
             return $this->respondWithReport(
-                reportName: 'mora',
+                reportName: 'overdue',
                 format: $format,
                 data: $data,
                 summary: $reportDTO->getSummary(),
                 generatedAt: $reportDTO->generated_at,
                 generatedBy: $reportDTO->generated_by,
+                exportClass: OverdueExport::class,
             );
         }, $request);
     }
@@ -360,15 +373,15 @@ class ReportController extends Controller
     public function performanceReport(Request $request)
     {
         $request->validate([
-            'start_date' => 'nullable|date',
-            'end_date' => 'nullable|date|after_or_equal:start_date',
+            'start_date'  => 'nullable|date',
+            'end_date'    => 'nullable|date|after_or_equal:start_date',
             'cobrador_id' => 'nullable|exists:users,id',
-            'manager_id' => 'nullable|exists:users,id',
-            'format' => 'nullable|in:pdf,html,json,excel',
+            'manager_id'  => 'nullable|exists:users,id',
+            'format'      => 'nullable|in:pdf,html,json,excel',
         ]);
 
         return $this->executeReportWithCache('performance', function () use ($request) {
-            $service = new PerformanceReportService();
+            $service   = new PerformanceReportService();
             $reportDTO = $service->generateReport(
                 filters: $request->only(['start_date', 'end_date', 'cobrador_id', 'manager_id']),
                 currentUser: Auth::user(),
@@ -397,7 +410,7 @@ class ReportController extends Controller
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
 
-        $service = new CashFlowForecastService();
+        $service   = new CashFlowForecastService();
         $reportDTO = $service->generateReport(
             filters: $request->only(['months']),
             currentUser: Auth::user(),
@@ -424,14 +437,14 @@ class ReportController extends Controller
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
 
-        $service = new WaitingListService();
+        $service   = new WaitingListService();
         $reportDTO = $service->generateReport(
             filters: [],
             currentUser: Auth::user(),
         );
 
         $format = $this->getRequestedFormat($request);
-        $data = collect($reportDTO->getData())->map(fn($c) => $c['_model']);
+        $data   = collect($reportDTO->getData())->map(fn($c) => $c['_model']);
 
         return $this->respondWithReport(
             reportName: 'waiting-list',
@@ -449,19 +462,19 @@ class ReportController extends Controller
     public function dailyActivityReport(Request $request)
     {
         $request->validate([
-            'date' => 'nullable|date',
+            'date'   => 'nullable|date',
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
 
         return $this->executeReportWithCache('daily-activity', function () use ($request) {
-            $service = new DailyActivityService();
+            $service   = new DailyActivityService();
             $reportDTO = $service->generateReport(
                 filters: $request->only(['date']),
                 currentUser: Auth::user(),
             );
 
             $format = $this->getRequestedFormat($request);
-            $data = collect($reportDTO->getData())->map(fn($p) => $p['_model']);
+            $data   = collect($reportDTO->getData())->map(fn($p) => $p['_model']);
 
             return $this->respondWithReport(
                 reportName: 'daily-activity',
@@ -484,14 +497,14 @@ class ReportController extends Controller
         ]);
 
         return $this->executeReportWithCache('portfolio', function () use ($request) {
-            $service = new PortfolioService();
+            $service   = new PortfolioService();
             $reportDTO = $service->generateReport(
                 filters: [],
                 currentUser: Auth::user(),
             );
 
             $format = $this->getRequestedFormat($request);
-            $data = collect($reportDTO->getData())->map(fn($c) => $c['_model']);
+            $data   = collect($reportDTO->getData())->map(fn($c) => $c['_model']);
 
             return $this->respondWithReport(
                 reportName: 'portfolio',
@@ -511,12 +524,12 @@ class ReportController extends Controller
     {
         $request->validate([
             'start_date' => 'nullable|date',
-            'end_date' => 'nullable|date|after_or_equal:start_date',
-            'format' => 'nullable|in:pdf,html,json,excel',
+            'end_date'   => 'nullable|date|after_or_equal:start_date',
+            'format'     => 'nullable|in:pdf,html,json,excel',
         ]);
 
         return $this->executeReportWithCache('commissions', function () use ($request) {
-            $service = new CommissionsService();
+            $service   = new CommissionsService();
             $reportDTO = $service->generateReport(
                 filters: $request->only(['start_date', 'end_date']),
                 currentUser: Auth::user(),
@@ -536,62 +549,90 @@ class ReportController extends Controller
     }
 
     /**
-     * Get available report types
+     * Get available report types with icons and colors
+     * Filtra reportes por rol:
+     * - ADMIN/MANAGER: ✅ Todos los reportes incluido "Reporte de Usuarios"
+     * - Otros roles: ✅ Reportes de negocio (créditos, pagos, balances, etc)
      */
     public function getReportTypes()
     {
+        $user = Auth::user();
+
+        // ✅ Reportes disponibles para TODOS los usuarios autenticados
+        $reports = [
+            [
+                'name'    => 'credits',
+                'label'   => '💳 Reporte de Créditos',
+                'icon'    => 'file-invoice-dollar',
+                'color'   => '#3b82f6',
+                'path'    => '/api/reports/credits',
+                'formats' => ['html', 'json', 'excel', 'pdf'],
+            ],
+            [
+                'name'    => 'payments',
+                'label'   => '💵 Reporte de Pagos',
+                'icon'    => 'money-bill-wave',
+                'color'   => '#10b981',
+                'path'    => '/api/reports/payments',
+                'formats' => ['html', 'json', 'excel', 'pdf'],
+            ],
+            [
+                'name'    => 'balances',
+                'label'   => '💰 Reporte de Balances',
+                'icon'    => 'scale-balanced',
+                'color'   => '#f59e0b',
+                'path'    => '/api/reports/balances',
+                'formats' => ['html', 'json', 'excel', 'pdf'],
+            ],
+            [
+                'name'    => 'overdue',
+                'label'   => '⏰ Reporte de Mora',
+                'icon'    => 'hourglass-end',
+                'color'   => '#ef4444',
+                'path'    => '/api/reports/overdue',
+                'formats' => ['html', 'json', 'excel', 'pdf'],
+            ],
+            [
+                'name'    => 'daily-activity',
+                'label'   => '📅 Reporte de Actividad Diaria',
+                'icon'    => 'calendar-day',
+                'color'   => '#ec4899',
+                'path'    => '/api/reports/daily-activity',
+                'formats' => ['html', 'json', 'excel', 'pdf'],
+            ],
+            [
+                'name'    => 'portfolio',
+                'label'   => '💼 Reporte de Cartera',
+                'icon'    => 'briefcase',
+                'color'   => '#6366f1',
+                'path'    => '/api/reports/portfolio',
+                'formats' => ['html', 'json', 'excel', 'pdf'],
+            ],
+        ];
+
+        // ✅ Agregar "Reporte de Usuarios" SOLO si es admin o manager
+        if ($user->hasAnyRole(['admin', 'manager'])) {
+            $reports[] = [
+                'name'    => 'users',
+                'label'   => '👤 Reporte de Usuarios',
+                'icon'    => 'users',
+                'color'   => '#8b5cf6',
+                'path'    => '/api/reports/users',
+                'formats' => ['html', 'json', 'excel', 'pdf'],
+            ];
+            $reports[] = [
+                'name'    => 'performance',
+                'label'   => '📊 Reporte de Desempeño',
+                'icon'    => 'chart-line',
+                'color'   => '#06b6d4',
+                'path'    => '/api/reports/performance',
+                'formats' => ['html', 'json', 'excel', 'pdf'],
+            ];
+        }
+
         return response()->json([
             'success' => true,
-            'data' => [
-                [
-                    'name' => 'payments',
-                    'label' => 'Reporte de Pagos',
-                    'path' => '/api/reports/payments',
-                    'formats' => ['html', 'json', 'excel', 'pdf'],
-                ],
-                [
-                    'name' => 'credits',
-                    'label' => 'Reporte de Créditos',
-                    'path' => '/api/reports/credits',
-                    'formats' => ['html', 'json', 'excel', 'pdf'],
-                ],
-                [
-                    'name' => 'users',
-                    'label' => 'Reporte de Usuarios',
-                    'path' => '/api/reports/users',
-                    'formats' => ['html', 'json', 'excel', 'pdf'],
-                ],
-                [
-                    'name' => 'balances',
-                    'label' => 'Reporte de Balances',
-                    'path' => '/api/reports/balances',
-                    'formats' => ['html', 'json', 'excel', 'pdf'],
-                ],
-                [
-                    'name' => 'overdue',
-                    'label' => 'Reporte de Mora',
-                    'path' => '/api/reports/overdue',
-                    'formats' => ['html', 'json', 'excel', 'pdf'],
-                ],
-                [
-                    'name' => 'performance',
-                    'label' => 'Reporte de Desempeño',
-                    'path' => '/api/reports/performance',
-                    'formats' => ['html', 'json', 'excel', 'pdf'],
-                ],
-                [
-                    'name' => 'daily-activity',
-                    'label' => 'Reporte de Actividad Diaria',
-                    'path' => '/api/reports/daily-activity',
-                    'formats' => ['html', 'json', 'excel', 'pdf'],
-                ],
-                [
-                    'name' => 'portfolio',
-                    'label' => 'Reporte de Cartera',
-                    'path' => '/api/reports/portfolio',
-                    'formats' => ['html', 'json', 'excel', 'pdf'],
-                ],
-            ],
+            'data'    => $reports,
         ]);
     }
 }

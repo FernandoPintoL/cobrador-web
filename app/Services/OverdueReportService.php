@@ -155,6 +155,7 @@ class OverdueReportService
             'total_balance_overdue_formatted' => 'Bs ' . number_format($credits->sum('balance'), 2),
             'average_days_overdue' => (float) round($credits->avg('days_overdue'), 2),
             'max_days_overdue' => (int) ($credits->max('days_overdue') ?? 0),
+            'min_days_overdue' => (int) ($credits->min('days_overdue') ?? 0),
             'by_severity' => [
                 'light' => $credits->filter(fn ($c) => $c->days_overdue <= 7)->count(),
                 'moderate' => $credits->filter(fn ($c) => $c->days_overdue > 7 && $c->days_overdue <= 30)->count(),

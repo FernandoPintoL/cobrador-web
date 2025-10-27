@@ -202,6 +202,27 @@
         background-color: var(--color-status-danger);
     }
 
+    /* Estados de Pago Avanzados */
+    .report-table tbody tr.payment-completed {
+        background-color: #e8f5e9;
+    }
+
+    .report-table tbody tr.payment-current {
+        background-color: #e3f2fd;
+    }
+
+    .report-table tbody tr.payment-ahead {
+        background-color: #f3e5f5;
+    }
+
+    .report-table tbody tr.payment-warning {
+        background-color: #fffacd;
+    }
+
+    .report-table tbody tr.payment-danger {
+        background-color: #ffcccc;
+    }
+
     /* ============================================
        COMPONENTE: STATUS BADGES
        ============================================ */
@@ -273,6 +294,34 @@
     }
 
     .icon-danger {
+        color: var(--color-danger);
+    }
+
+    /* Payment Status Icons */
+    .payment-icon {
+        display: inline-block;
+        font-weight: bold;
+        font-size: 14px;
+        margin-right: 4px;
+    }
+
+    .payment-completed .payment-icon {
+        color: var(--color-success);
+    }
+
+    .payment-current .payment-icon {
+        color: var(--color-primary);
+    }
+
+    .payment-ahead .payment-icon {
+        color: var(--color-info);
+    }
+
+    .payment-warning .payment-icon {
+        color: var(--color-warning);
+    }
+
+    .payment-danger .payment-icon {
         color: var(--color-danger);
     }
 

@@ -1,8 +1,10 @@
 <?php
 namespace App\Http\Controllers\Api;
 
+use App\DTOs\LocationClusterDTO;
 use App\Http\Controllers\Api\BaseController;
 use App\Models\User;
+use App\Services\LocationClusteringService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Spatie\Permission\Models\Role;
@@ -320,6 +322,128 @@ class MapController extends BaseController
             ], 'Coordenadas de clientes obtenidas exitosamente');
         } catch (\Exception $e) {
             return $this->sendError('Error al obtener coordenadas de clientes', $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * ✅ ENDPOINT: Obtener clientes agrupados por ubicación (Clustering)
+     *
+     * PROPÓSITO:
+     * Evitar múltiples marcadores iguales en el mapa cuando hay varias personas
+     * en la misma casa con créditos. Agrupa por ubicación y proporciona información
+     * detallada de todas las personas y créditos en esa ubicación.
+     *
+     * RESPUESTA JSON PRECISA PARA FLUTTER:
+     * {
+     *   "success": true,
+     *   "data": [
+     *     {
+     *       "cluster_id": "19.4326,-99.1332",
+     *       "location": {
+     *         "latitude": 19.4326,
+     *         "longitude": -99.1332,
+     *         "address": "Calle Principal 123"
+     *       },
+     *       "cluster_summary": {
+     *         "total_people": 3,
+     *         "total_credits": 5,
+     *         "total_amount": 5500.00,
+     *         "total_balance": 3500.00,
+     *         "overdue_count": 2,
+     *         "overdue_amount": 1500.00,
+     *         "active_count": 3,
+     *         "active_amount": 2000.00,
+     *         "completed_count": 0,
+     *         "completed_amount": 0.00
+     *       },
+     *       "cluster_status": "overdue",
+     *       "people": [
+     *         {
+     *           "person_id": 1,
+     *           "name": "Juan García",
+     *           "phone": "555-1234",
+     *           "client_category": "A",
+     *           "total_credits": 2,
+     *           "total_balance": 1400.00,
+     *           "person_status": "overdue",
+     *           "credits": [...]
+     *         }
+     *       ]
+     *     }
+     *   ],
+     *   "message": "Clusters de ubicaciones obtenidos exitosamente"
+     * }
+     *
+     * FILTROS SOPORTADOS (query parameters):
+     * - status: "overdue|pending|paid"
+     * - cobrador_id: <user_id> (solo admin/manager)
+     * - nombre: Búsqueda parcial por nombre del cliente (ej: "Juan")
+     * - telefono: Búsqueda parcial por teléfono (ej: "555")
+     * - ci: Búsqueda parcial por cédula/identificación (ej: "1234567")
+     * - categoria_cliente: Categoría exacta (ej: "A"=VIP, "B"=Normal, "C"=Mal Cliente)
+     *
+     * EJEMPLOS DE USO:
+     * GET /api/map/location-clusters
+     * GET /api/map/location-clusters?status=overdue
+     * GET /api/map/location-clusters?nombre=Juan
+     * GET /api/map/location-clusters?telefono=555&categoria_cliente=A
+     * GET /api/map/location-clusters?ci=1234567&cobrador_id=5
+     *
+     * PERMISOS:
+     * - admin: Ve todos los clusters
+     * - manager: Ve clusters de sus cobradores asignados
+     * - cobrador: Ve solo sus clusters asignados
+     */
+    public function getLocationClusters(Request $request)
+    {
+        try {
+            $currentUser = Auth::user();
+            $service = new LocationClusteringService();
+
+            // Preparar filtros desde query parameters
+            $filters = [];
+
+            // Filtro de estado de pago
+            if ($request->has('status')) {
+                $filters['status'] = $request->status;
+            }
+
+            // Filtro por cobrador (solo admin/manager pueden usar)
+            if ($request->has('cobrador_id') && ($currentUser->hasRole('admin') || $currentUser->hasRole('manager'))) {
+                $filters['cobrador_id'] = $request->cobrador_id;
+            }
+
+            // Filtros por datos del cliente
+            if ($request->has('nombre')) {
+                $filters['nombre'] = $request->nombre;
+            }
+
+            if ($request->has('telefono')) {
+                $filters['telefono'] = $request->telefono;
+            }
+
+            if ($request->has('ci')) {
+                $filters['ci'] = $request->ci;
+            }
+
+            if ($request->has('categoria_cliente')) {
+                $filters['categoria_cliente'] = $request->categoria_cliente;
+            }
+
+            // Generar clusters
+            $clusters = $service->generateLocationClusters($filters, $currentUser);
+
+            // Convertir a array para respuesta JSON
+            $clustersArray = $clusters->map(function (LocationClusterDTO $cluster) {
+                return $cluster->toArray();
+            })->values()->all();
+
+            return $this->sendResponse(
+                $clustersArray,
+                'Clusters de ubicaciones obtenidos exitosamente'
+            );
+        } catch (\Exception $e) {
+            return $this->sendError('Error al obtener clusters de ubicaciones', $e->getMessage(), 500);
         }
     }
 }
