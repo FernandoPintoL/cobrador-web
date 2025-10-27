@@ -3,6 +3,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Exports\BalancesExport;
 use App\Exports\CreditsExport;
+use App\Exports\DailyActivityExport;
 use App\Exports\OverdueExport;
 use App\Exports\PaymentsExport;
 use App\Exports\UsersExport;
@@ -495,6 +496,7 @@ class ReportController extends Controller
                 summary: $reportDTO->getSummary(),
                 generatedAt: $reportDTO->generated_at,
                 generatedBy: $reportDTO->generated_by,
+                exportClass: DailyActivityExport::class,
             );
         }, $request);
     }

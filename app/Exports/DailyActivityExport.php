@@ -16,9 +16,9 @@ class DailyActivityExport implements FromCollection, WithHeadings, WithMapping, 
 
     protected array $summary;
 
-    public function __construct(array $activities, array $summary)
+    public function __construct(Collection $activities, array $summary)
     {
-        $this->activities = $activities;
+        $this->activities = $activities->toArray();
         $this->summary = $summary;
     }
 
@@ -35,6 +35,22 @@ class DailyActivityExport implements FromCollection, WithHeadings, WithMapping, 
      */
     public function map($item): array
     {
+        // Calcular totales de créditos entregados
+        $creditsDeliveredTotal = 0;
+        if (isset($item['credits_delivered']['details']) && is_array($item['credits_delivered']['details'])) {
+            foreach ($item['credits_delivered']['details'] as $credit) {
+                $creditsDeliveredTotal += $credit['amount'] ?? 0;
+            }
+        }
+
+        // Calcular totales de pagos cobrados
+        $paymentsCollectedTotal = 0;
+        if (isset($item['payments_collected']['details']) && is_array($item['payments_collected']['details'])) {
+            foreach ($item['payments_collected']['details'] as $payment) {
+                $paymentsCollectedTotal += $payment['amount'] ?? 0;
+            }
+        }
+
         return [
             $item['cobrador_name'],
             $item['cash_balance']['status'],
@@ -43,11 +59,11 @@ class DailyActivityExport implements FromCollection, WithHeadings, WithMapping, 
             $item['cash_balance']['lent_amount'],
             $item['cash_balance']['final_amount'],
             $item['credits_delivered']['count'],
-            $item['credits_delivered']['total_amount'],
+            $creditsDeliveredTotal,
             $item['payments_collected']['count'],
-            $item['payments_collected']['total_amount'],
-            $item['credits_to_deliver_today']['count'],
-            $item['credits_to_deliver_today']['total_amount'],
+            $paymentsCollectedTotal,
+            $item['expected_payments']['pending'],
+            0,  // Placeholder para monto pendiente de entregar
             $item['expected_payments']['count'],
             $item['expected_payments']['collected'],
             $item['expected_payments']['pending'],
