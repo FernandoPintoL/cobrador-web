@@ -5,10 +5,21 @@ namespace App\Services;
 use App\DTOs\OverdueReportDTO;
 use App\Models\Credit;
 use App\Models\User;
+use App\Traits\AuthorizeReportAccessTrait;
 use Illuminate\Support\Collection;
 
+/**
+ * OverdueReportService - Servicio Centralizado de Reportes de Mora
+ *
+ * ✅ SEGURIDAD:
+ * - Usa AuthorizeReportAccessTrait para autorización centralizada
+ * - Cobrador: Ve créditos atrasados que creó O entregó
+ * - Manager: Ve créditos atrasados de sus clientes directos y de sus cobradores
+ * - Admin: Ve todo
+ */
 class OverdueReportService
 {
+    use AuthorizeReportAccessTrait;
     public function generateReport(array $filters, object $currentUser): OverdueReportDTO
     {
         $query = $this->buildQuery($filters, $currentUser);
@@ -49,26 +60,13 @@ class OverdueReportService
             });
         }
 
-        if ($currentUser->hasRole('cobrador')) {
-            $query->where(function ($q) use ($currentUser) {
-                $q->where('created_by', $currentUser->id)
-                    ->orWhere('delivered_by', $currentUser->id);
-            });
-        } elseif ($currentUser->hasRole('manager')) {
-            $directClientIds = User::whereHas('roles', function ($q) {
-                $q->where('name', 'client');
-            })->where('assigned_manager_id', $currentUser->id)->pluck('id')->toArray();
-
-            $cobradorIds = User::role('cobrador')
-                ->where('assigned_manager_id', $currentUser->id)
-                ->pluck('id')->toArray();
-
-            $cobradorClientIds = User::whereHas('roles', function ($q) {
-                $q->where('name', 'client');
-            })->whereIn('assigned_cobrador_id', $cobradorIds)->pluck('id')->toArray();
-
-            $allClientIds = array_unique(array_merge($directClientIds, $cobradorClientIds));
-            $query->whereIn('client_id', $allClientIds);
+        // ✅ AUTORIZACIÓN CENTRALIZADA - Usa getAuthorizedClientIds del trait
+        $authorizedClientIds = $this->getAuthorizedClientIds($currentUser);
+        if (!empty($authorizedClientIds)) {
+            $query->whereIn('client_id', $authorizedClientIds);
+        } else {
+            // Si no tiene acceso a ningún cliente, retornar query vacía
+            $query->whereRaw('1 = 0');
         }
 
         return $query;

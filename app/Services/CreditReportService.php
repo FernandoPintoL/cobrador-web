@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\DTOs\CreditReportDTO;
 use App\Models\Credit;
+use App\Traits\AuthorizeReportAccessTrait;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -12,9 +13,16 @@ use Illuminate\Support\Collection;
  *
  * ✅ ARQUITECTURA CENTRALIZADA - OPCIÓN 3
  * Encapsula toda la lógica de reportes de créditos en un único servicio.
+ *
+ * ✅ SEGURIDAD:
+ * - Usa AuthorizeReportAccessTrait para autorización centralizada
+ * - Cobrador: Ve créditos que creó O entregó
+ * - Manager: Ve créditos creados o entregados por sus cobradores
+ * - Admin: Ve todo
  */
 class CreditReportService
 {
+    use AuthorizeReportAccessTrait;
     /**
      * Genera el reporte completo de créditos
      *
@@ -84,14 +92,8 @@ class CreditReportService
             $query->whereDate('created_at', '<=', $filters['end_date']);
         }
 
-        // Validación de visibilidad por rol
-        if ($currentUser->hasRole('cobrador')) {
-            $query->where('created_by', $currentUser->id);
-        } elseif ($currentUser->hasRole('manager')) {
-            $query->whereHas('createdBy', function ($q) use ($currentUser) {
-                $q->where('assigned_manager_id', $currentUser->id);
-            });
-        }
+        // ✅ AUTORIZACIÓN CENTRALIZADA - Maneja múltiples relaciones (created_by + delivered_by)
+        $this->authorizeUserAccessMultiple($query, $currentUser, ['created_by', 'delivered_by']);
 
         return $query;
     }

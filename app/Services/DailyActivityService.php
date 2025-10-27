@@ -6,11 +6,22 @@ use App\DTOs\DailyActivityDTO;
 use App\Models\Credit;
 use App\Models\CashBalance;
 use App\Models\Payment;
+use App\Traits\AuthorizeReportAccessTrait;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
+/**
+ * DailyActivityService - Servicio Centralizado de Reportes de Actividad Diaria
+ *
+ * ✅ SEGURIDAD:
+ * - Usa AuthorizeReportAccessTrait para autorización centralizada
+ * - Cobrador: Ve su propia actividad diaria
+ * - Manager: Ve actividad diaria de sus cobradores asignados
+ * - Admin: Ve actividad diaria de todos
+ */
 class DailyActivityService
 {
+    use AuthorizeReportAccessTrait;
     public function generateReport(array $filters, object $currentUser): DailyActivityDTO
     {
         $date = $filters['date'] ?? now()->format('Y-m-d');

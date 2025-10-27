@@ -6,10 +6,21 @@ use App\DTOs\PerformanceReportDTO;
 use App\Models\Credit;
 use App\Models\Payment;
 use App\Models\User;
+use App\Traits\AuthorizeReportAccessTrait;
 use Illuminate\Support\Collection;
 
+/**
+ * PerformanceReportService - Servicio Centralizado de Reportes de Desempeño
+ *
+ * ✅ SEGURIDAD:
+ * - Usa AuthorizeReportAccessTrait para autorización centralizada
+ * - Cobrador: Ve su propio desempeño
+ * - Manager: Ve desempeño de sus cobradores asignados
+ * - Admin: Ve desempeño de todos
+ */
 class PerformanceReportService
 {
+    use AuthorizeReportAccessTrait;
     public function generateReport(array $filters, object $currentUser): PerformanceReportDTO
     {
         $startDate = $filters['start_date'] ?? now()->subMonth()->startOfDay();
@@ -27,22 +38,27 @@ class PerformanceReportService
         );
     }
 
+    /**
+     * ✅ AUTORIZACIÓN CENTRALIZADA - Obtiene cobradores autorizados
+     */
     private function getCobradores(array $filters, object $currentUser)
     {
-        $query = User::role('cobrador')->with(['assignedClients', 'assignedManager']);
+        // Usar el método del trait para obtener los cobradores autorizados
+        $cobradorIds = $this->getAuthorizedCobradorIds($currentUser);
 
+        $query = User::role('cobrador')
+            ->with(['assignedClients', 'assignedManager'])
+            ->whereIn('id', $cobradorIds);
+
+        // Permitir filtros adicionales pero solo para cobradores autorizados
         if (!empty($filters['cobrador_id'])) {
-            $query->where('id', $filters['cobrador_id']);
+            if (in_array($filters['cobrador_id'], $cobradorIds)) {
+                $query->where('id', $filters['cobrador_id']);
+            }
         }
 
-        if (!empty($filters['manager_id'])) {
+        if (!empty($filters['manager_id']) && $currentUser->hasRole('admin')) {
             $query->where('assigned_manager_id', $filters['manager_id']);
-        }
-
-        if ($currentUser->hasRole('cobrador')) {
-            $query->where('id', $currentUser->id);
-        } elseif ($currentUser->hasRole('manager')) {
-            $query->where('assigned_manager_id', $currentUser->id);
         }
 
         return $query->get();

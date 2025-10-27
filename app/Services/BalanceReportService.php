@@ -4,10 +4,21 @@ namespace App\Services;
 
 use App\DTOs\BalanceReportDTO;
 use App\Models\CashBalance;
+use App\Traits\AuthorizeReportAccessTrait;
 use Illuminate\Support\Collection;
 
+/**
+ * BalanceReportService - Servicio Centralizado de Reportes de Balances
+ *
+ * ✅ SEGURIDAD:
+ * - Usa AuthorizeReportAccessTrait para autorización centralizada
+ * - Cobrador: Ve SOLO sus balances
+ * - Manager: Ve balances de sus cobradores asignados
+ * - Admin: Ve todo
+ */
 class BalanceReportService
 {
+    use AuthorizeReportAccessTrait;
     public function generateReport(array $filters, object $currentUser): BalanceReportDTO
     {
         $query = $this->buildQuery($filters, $currentUser);

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\DTOs\PaymentReportDTO;
 use App\Http\Resources\PaymentResource;
 use App\Models\Payment;
+use App\Traits\AuthorizeReportAccessTrait;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -26,11 +27,18 @@ use Illuminate\Support\Collection;
  * - Performance optimizado con caché en memoria
  * - SOLID principles: Single Responsibility
  *
+ * ✅ SEGURIDAD:
+ * - Usa AuthorizeReportAccessTrait para autorización centralizada
+ * - Cobrador: Ve solo sus propios pagos
+ * - Manager: Ve pagos de sus cobradores asignados
+ * - Admin: Ve todo
+ *
  * FLUJO:
  * Controller → Service.generateReport() → DTO → Controller → [Resource|Export|Blade]
  */
 class PaymentReportService
 {
+    use AuthorizeReportAccessTrait;
     /**
      * Genera el reporte completo de pagos
      *
@@ -61,6 +69,11 @@ class PaymentReportService
 
     /**
      * Construye la query base con filtros aplicados
+     *
+     * ✅ SEGURIDAD: Usa AuthorizeReportAccessTrait para garantizar que:
+     * - Cobradores ven SOLO sus propios pagos
+     * - Managers ven pagos de sus cobradores asignados
+     * - Admin ve todo
      */
     private function buildQuery(array $filters, object $currentUser): Builder
     {
@@ -75,15 +88,17 @@ class PaymentReportService
             $query->whereDate('payment_date', '<=', $filters['end_date']);
         }
 
-        // Filtro por cobrador
+        // Filtro por cobrador específico (si se solicita)
+        // Pero solo si el usuario tiene autorización para verlo
         if (!empty($filters['cobrador_id'])) {
-            $query->where('cobrador_id', $filters['cobrador_id']);
+            $cobradorIds = $this->getAuthorizedCobradorIds($currentUser);
+            if (in_array($filters['cobrador_id'], $cobradorIds)) {
+                $query->where('cobrador_id', $filters['cobrador_id']);
+            }
         }
 
-        // Validación de visibilidad por rol
-        if ($currentUser->hasRole('cobrador')) {
-            $query->where('cobrador_id', $currentUser->id);
-        }
+        // ✅ AUTORIZACIÓN CENTRALIZADA
+        $this->authorizeUserAccess($query, $currentUser, 'cobrador_id');
 
         return $query;
     }
