@@ -114,6 +114,16 @@ class ReportController extends Controller
             'activities'   => $data,  // Para el reporte de actividad diaria
         ];
 
+        // Para JSON, limpiar el _model para una respuesta más limpia
+        $jsonData = $data->map(function ($item) {
+            if (is_array($item) && isset($item['_model'])) {
+                $cleaned = $item;
+                unset($cleaned['_model']);
+                return $cleaned;
+            }
+            return $item;
+        });
+
         return match ($format) {
             'html' => response(view($viewPath, $viewData), 200)
                 ->header('Content-Type', 'text/html; charset=utf-8'),
@@ -121,7 +131,7 @@ class ReportController extends Controller
             'json' => response()->json([
                 'success' => true,
                 'data'    => [
-                    'items'        => $data,
+                    'items'        => $jsonData,
                     'summary'      => $summary,
                     'generated_at' => $generatedAt,
                     'generated_by' => $generatedBy,
@@ -475,7 +485,8 @@ class ReportController extends Controller
             );
 
             $format = $this->getRequestedFormat($request);
-            $data   = collect($reportDTO->getData())->map(fn($p) => $p['_model']);
+            // Retornar las actividades agrupadas por cobrador (estructura consistente)
+            $data   = $reportDTO->getData();
 
             return $this->respondWithReport(
                 reportName: 'daily-activity',
