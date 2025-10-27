@@ -111,6 +111,7 @@ class ReportController extends Controller
             'payments'     => $data,
             'users'        => $data,
             'balances'     => $data,
+            'activities'   => $data,  // Para el reporte de actividad diaria
         ];
 
         return match ($format) {
