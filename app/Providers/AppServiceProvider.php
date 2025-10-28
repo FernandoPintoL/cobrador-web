@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Helpers\BladeLocalizationHelper;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\URL;
@@ -35,5 +36,8 @@ class AppServiceProvider extends ServiceProvider
             'extra' => $user->email,
             'avatar' => $user->avatar_url,
         ]);
+
+        // ✅ Registrar helpers globales de localización para reportes
+        BladeLocalizationHelper::registerGlobalHelpers();
     }
 }

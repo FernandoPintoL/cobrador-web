@@ -79,11 +79,14 @@ trait AuthorizeReportAccessTrait
     }
 
     /**
-     * Autoriza acceso a múltiples relaciones (ej: created_by OR delivered_by).
+     * Autoriza acceso a múltiples relaciones (ej: createdBy OR deliveredBy).
+     *
+     * Soporta tanto camelCase (relaciones) como snake_case (columnas).
      *
      * @param  Builder  $query  Query a filtrar
      * @param  object  $currentUser  Usuario actual
-     * @param  array  $relationships  Array de relaciones a chequear (ej: ['created_by', 'delivered_by'])
+     * @param  array  $relationships  Array de relaciones a chequear
+     *                                 (ej: ['createdBy', 'deliveredBy'] o ['created_by', 'delivered_by'])
      * @return Builder  Query filtrada
      */
     protected function authorizeUserAccessMultiple(
@@ -100,7 +103,10 @@ trait AuthorizeReportAccessTrait
         if ($currentUser->hasRole('cobrador')) {
             return $query->where(function ($q) use ($currentUser, $relationships) {
                 foreach ($relationships as $relationship) {
-                    $q->orWhere($relationship, $currentUser->id);
+                    // Convertir camelCase a snake_case para columnas
+                    // ej: 'createdBy' -> 'created_by'
+                    $columnName = $this->camelCaseToSnakeCase($relationship);
+                    $q->orWhere($columnName, $currentUser->id);
                 }
             });
         }
@@ -109,7 +115,11 @@ trait AuthorizeReportAccessTrait
         if ($currentUser->hasRole('manager')) {
             return $query->where(function ($q) use ($currentUser, $relationships) {
                 foreach ($relationships as $relationship) {
-                    $q->orWhereHas(str_replace('_id', '', $relationship), function ($subQ) use ($currentUser) {
+                    // Convertir snake_case a camelCase para relaciones si es necesario
+                    // ej: 'created_by' -> 'createdBy', o 'createdBy' -> 'createdBy' (sin cambio)
+                    $relationshipName = $this->snakeCaseToCamelCase($relationship);
+
+                    $q->orWhereHas($relationshipName, function ($subQ) use ($currentUser) {
                         $subQ->where('assigned_manager_id', $currentUser->id);
                     });
                 }
@@ -118,6 +128,24 @@ trait AuthorizeReportAccessTrait
 
         // Por defecto, no retornar nada (seguridad)
         return $query->whereRaw('1 = 0');
+    }
+
+    /**
+     * Convierte camelCase a snake_case
+     * ej: 'createdBy' -> 'created_by'
+     */
+    private function camelCaseToSnakeCase(string $str): string
+    {
+        return strtolower(preg_replace('/(?<!^)[A-Z]/', '_$0', $str));
+    }
+
+    /**
+     * Convierte snake_case a camelCase
+     * ej: 'created_by' -> 'createdBy'
+     */
+    private function snakeCaseToCamelCase(string $str): string
+    {
+        return lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', $str))));
     }
 
     /**

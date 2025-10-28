@@ -112,7 +112,7 @@ class ReportController extends Controller
             'payments'     => $data,
             'users'        => $data,
             'balances'     => $data,
-            'activities'   => $data,  // Para el reporte de actividad diaria
+            'activities'   => $data, // Para el reporte de actividad diaria
         ];
 
         // Para JSON, limpiar el _model para una respuesta más limpia
@@ -381,9 +381,20 @@ class ReportController extends Controller
 
     /**
      * Reporte de Desempeño
+     * ✅ SOLO DISPONIBLE PARA ADMIN/MANAGER
+     * Otras roles reciben 403 Forbidden
      */
     public function performanceReport(Request $request)
     {
+        // ✅ Validación de autorización: solo admin/manager
+        $user = Auth::user();
+        if (! $user->hasAnyRole(['admin', 'manager'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permiso para acceder al reporte de desempeño',
+            ], 403);
+        }
+
         $request->validate([
             'start_date'  => 'nullable|date',
             'end_date'    => 'nullable|date|after_or_equal:start_date',
@@ -414,9 +425,20 @@ class ReportController extends Controller
 
     /**
      * Reporte de Pronóstico de Flujo de Caja
+     * ✅ SOLO DISPONIBLE PARA ADMIN/MANAGER
+     * Otras roles reciben 403 Forbidden
      */
     public function cashFlowForecastReport(Request $request)
     {
+        // ✅ Validación de autorización: solo admin/manager
+        $user = Auth::user();
+        if (! $user->hasAnyRole(['admin', 'manager'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permiso para acceder al reporte de flujo de caja',
+            ], 403);
+        }
+
         $request->validate([
             'months' => 'nullable|integer|min:1|max:24',
             'format' => 'nullable|in:pdf,html,json,excel',
@@ -442,9 +464,20 @@ class ReportController extends Controller
 
     /**
      * Reporte de Créditos en Espera
+     * ✅ SOLO DISPONIBLE PARA ADMIN/MANAGER
+     * Otras roles reciben 403 Forbidden
      */
     public function waitingListReport(Request $request)
     {
+        // ✅ Validación de autorización: solo admin/manager
+        $user = Auth::user();
+        if (! $user->hasAnyRole(['admin', 'manager'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permiso para acceder al reporte de créditos en espera',
+            ], 403);
+        }
+
         $request->validate([
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
@@ -487,7 +520,7 @@ class ReportController extends Controller
 
             $format = $this->getRequestedFormat($request);
             // Retornar las actividades agrupadas por cobrador (estructura consistente)
-            $data   = $reportDTO->getData();
+            $data = $reportDTO->getData();
 
             return $this->respondWithReport(
                 reportName: 'daily-activity',
@@ -503,9 +536,20 @@ class ReportController extends Controller
 
     /**
      * Reporte de Cartera
+     * ✅ SOLO DISPONIBLE PARA ADMIN/MANAGER
+     * Otras roles reciben 403 Forbidden
      */
     public function portfolioReport(Request $request)
     {
+        // ✅ Validación de autorización: solo admin/manager
+        $user = Auth::user();
+        if (! $user->hasAnyRole(['admin', 'manager'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permiso para acceder al reporte de cartera',
+            ], 403);
+        }
+
         $request->validate([
             'format' => 'nullable|in:pdf,html,json,excel',
         ]);
@@ -533,9 +577,20 @@ class ReportController extends Controller
 
     /**
      * Reporte de Comisiones
+     * ✅ SOLO DISPONIBLE PARA ADMIN/MANAGER
+     * Otras roles reciben 403 Forbidden
      */
     public function commissionsReport(Request $request)
     {
+        // ✅ Validación de autorización: solo admin/manager
+        $user = Auth::user();
+        if (! $user->hasAnyRole(['admin', 'manager'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permiso para acceder al reporte de comisiones',
+            ], 403);
+        }
+
         $request->validate([
             'start_date' => 'nullable|date',
             'end_date'   => 'nullable|date|after_or_equal:start_date',
@@ -580,7 +635,7 @@ class ReportController extends Controller
                 'icon'    => 'file-invoice-dollar',
                 'color'   => '#3b82f6',
                 'path'    => '/api/reports/credits',
-                'formats' => ['html', 'json', 'excel', 'pdf'],
+                'formats' => ['html', 'json', ' excel', 'pdf'],
             ],
             [
                 'name'    => 'payments',
@@ -614,18 +669,27 @@ class ReportController extends Controller
                 'path'    => '/api/reports/daily-activity',
                 'formats' => ['html', 'json', 'excel', 'pdf'],
             ],
-            [
+            /* [
                 'name'    => 'portfolio',
                 'label'   => '💼 Reporte de Cartera',
                 'icon'    => 'briefcase',
                 'color'   => '#6366f1',
                 'path'    => '/api/reports/portfolio',
                 'formats' => ['html', 'json', 'excel', 'pdf'],
-            ],
+            ], */
         ];
 
-        // ✅ Agregar "Reporte de Usuarios" SOLO si es admin o manager
+        // ✅ Agregar reportes SOLO si es admin o manager
         if ($user->hasAnyRole(['admin', 'manager'])) {
+            /*$reports[] = [
+                'name'    => 'performance',
+                'label'   => '📊 Reporte de Desempeño',
+                'icon'    => 'chart-line',
+                'color'   => '#06b6d4',
+                'path'    => '/api/reports/performance',
+                'formats' => ['html', 'json', 'excel', 'pdf'],
+            ];
+
             $reports[] = [
                 'name'    => 'users',
                 'label'   => '👤 Reporte de Usuarios',
@@ -634,14 +698,42 @@ class ReportController extends Controller
                 'path'    => '/api/reports/users',
                 'formats' => ['html', 'json', 'excel', 'pdf'],
             ];
+
             $reports[] = [
-                'name'    => 'performance',
-                'label'   => '📊 Reporte de Desempeño',
+                'name'    => 'cash-flow-forecast',
+                'label'   => '📈 Pronóstico de Flujo de Caja',
                 'icon'    => 'chart-line',
-                'color'   => '#06b6d4',
-                'path'    => '/api/reports/performance',
+                'color'   => '#14b8a6',
+                'path'    => '/api/reports/cash-flow-forecast',
                 'formats' => ['html', 'json', 'excel', 'pdf'],
             ];
+
+            $reports[] = [
+                'name'    => 'waiting-list',
+                'label'   => '⏳ Créditos en Espera',
+                'icon'    => 'hourglass',
+                'color'   => '#f97316',
+                'path'    => '/api/reports/waiting-list',
+                'formats' => ['html', 'json', 'excel', 'pdf'],
+            ];
+
+            $reports[] = [
+                'name'    => 'commissions',
+                'label'   => '💎 Reporte de Comisiones',
+                'icon'    => 'percent',
+                'color'   => '#eab308',
+                'path'    => '/api/reports/commissions',
+                'formats' => ['html', 'json', 'excel', 'pdf'],
+            ];
+
+            $reports[] = [
+                'name'    => 'portfolio',
+                'label'   => '💼 Reporte de Cartera',
+                'icon'    => 'briefcase',
+                'color'   => '#6366f1',
+                'path'    => '/api/reports/portfolio',
+                'formats' => ['html', 'json', 'excel', 'pdf'],
+            ];*/
         }
 
         return response()->json([

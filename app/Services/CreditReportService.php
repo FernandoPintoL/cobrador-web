@@ -92,8 +92,9 @@ class CreditReportService
             $query->whereDate('created_at', '<=', $filters['end_date']);
         }
 
-        // ✅ AUTORIZACIÓN CENTRALIZADA - Maneja múltiples relaciones (created_by + delivered_by)
-        $this->authorizeUserAccessMultiple($query, $currentUser, ['created_by', 'delivered_by']);
+        // ✅ AUTORIZACIÓN CENTRALIZADA - Maneja múltiples relaciones con nombres correctos
+        // Usa las relaciones camelCase definidas en el modelo Credit: createdBy() y deliveredBy()
+        $this->authorizeUserAccessMultiple($query, $currentUser, ['createdBy', 'deliveredBy']);
 
         return $query;
     }
