@@ -22,7 +22,8 @@
       "Bash(php:*)",
       "Bash(composer dump-autoload:*)",
       "Bash(cd:*)",
-      "mcp__laravel-boost__get-absolute-url"
+      "mcp__laravel-boost__get-absolute-url",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

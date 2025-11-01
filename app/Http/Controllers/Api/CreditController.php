@@ -818,6 +818,37 @@ class CreditController extends BaseController
     /**
      * DEBUG: Método temporal para debuggear problema de listado de cobrador
      */
+    /**
+     * Get available payment frequencies
+     */
+    public function getAvailableFrequencies()
+    {
+        $frequencies = [
+            [
+                'value' => 'daily',
+                'label' => 'Diario',
+                'description' => 'Pago todos los días'
+            ],
+            [
+                'value' => 'weekly',
+                'label' => 'Semanal',
+                'description' => 'Pago una vez por semana'
+            ],
+            [
+                'value' => 'biweekly',
+                'label' => 'Quincenal',
+                'description' => 'Pago cada dos semanas'
+            ],
+            [
+                'value' => 'monthly',
+                'label' => 'Mensual',
+                'description' => 'Pago una vez al mes'
+            ]
+        ];
+
+        return $this->sendResponse($frequencies, 'Frecuencias disponibles');
+    }
+
     public function debugCobradorCredits(Request $request)
     {
         $currentUser = Auth::user();

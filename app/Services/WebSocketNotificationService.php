@@ -299,6 +299,24 @@ class WebSocketNotificationService
     }
 
     /**
+     * Notificar actualización de estadísticas
+     */
+    public function notifyStatsUpdate(string $type, array $stats, ?int $userId = null): bool
+    {
+        if (! $this->isEnabled()) {
+            return false;
+        }
+
+        $payload = [
+            'type' => $type,
+            'stats' => $stats,
+            'user_id' => $userId,
+        ];
+
+        return $this->sendRequest('/stats-update', $payload, "stats update ({$type})");
+    }
+
+    /**
      * Enviar notificación de crédito
      */
     protected function sendCreditNotification(string $action, Credit $credit, ?User $manager, User $cobrador): bool

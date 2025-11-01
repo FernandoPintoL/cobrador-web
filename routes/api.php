@@ -106,19 +106,22 @@ Route::middleware('auth:sanctum')->group(function () {
     ]);
     Route::get('/interest-rates/active', [InterestRateController::class, 'active'])->name('api.interest-rates.active');
 
-    // Créditos - Rutas principales
-    Route::apiResource('credits', CreditController::class)->names([
-        'index'   => 'api.credits.index',
-        'store'   => 'api.credits.store',
-        'update'  => 'api.credits.update',
-        'destroy' => 'api.credits.destroy',
-    ]);
+    // Créditos - Rutas específicas PRIMERO (antes del resource)
+    Route::get('/credits/frequencies/available', [CreditController::class, 'getAvailableFrequencies'])->name('api.credits.frequencies');
     Route::get('/credits/{credit}/remaining-installments', [CreditController::class, 'getRemainingInstallments'])->name('api.credits.remaining-installments');
     Route::get('/credits/client/{client}', [CreditController::class, 'getByClient'])->name('api.credits.by-client');
     Route::get('/credits/cobrador/{cobrador}', [CreditController::class, 'getByCobrador'])->name('api.credits.by-cobrador');
     Route::get('/credits/cobrador/{cobrador}/stats', [CreditController::class, 'getCobradorStats'])->name('api.credits.cobrador.stats');
     Route::get('/credits/manager/{manager}/stats', [CreditController::class, 'getManagerStats'])->name('api.credits.manager.stats');
     Route::get('/credits-requiring-attention', [CreditController::class, 'getCreditsRequiringAttention'])->name('api.credits.requiring-attention');
+
+    // Créditos - Resource route AL FINAL (para evitar conflictos)
+    Route::apiResource('credits', CreditController::class)->names([
+        'index'   => 'api.credits.index',
+        'store'   => 'api.credits.store',
+        'update'  => 'api.credits.update',
+        'destroy' => 'api.credits.destroy',
+    ]);
 
     // Gestión avanzada de pagos de créditos
     Route::get('/credits/{credit}/details', [CreditController::class, 'show'])->name('api.credits.details');

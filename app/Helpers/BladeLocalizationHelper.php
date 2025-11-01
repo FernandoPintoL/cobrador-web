@@ -65,6 +65,13 @@ class BladeLocalizationHelper
      */
     public static function registerGlobalHelpers(): void
     {
+        // Evitar registros duplicados
+        static $registered = false;
+        if ($registered) {
+            return;
+        }
+        $registered = true;
+
         // Funciones de traducción
         if (!function_exists('creditStatus')) {
             function creditStatus(?string $status): string {
