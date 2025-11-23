@@ -296,6 +296,13 @@ class Payment extends Model
                         $credit->total_paid = ($credit->total_paid ?? 0) + $payment->amount;
                     }
 
+                    // Actualizar status del crédito según el balance
+                    if ($credit->balance <= 0 && $credit->status !== 'completed') {
+                        $credit->status = 'completed';
+                    } elseif ($credit->balance > 0 && $credit->status === 'completed') {
+                        $credit->status = 'active';
+                    }
+
                     $credit->save();
                 }
 
@@ -344,6 +351,13 @@ class Payment extends Model
                             $credit->total_paid = max(0, ($credit->total_paid ?? 0) - $oldAmount);
                         }
 
+                        // Actualizar status del crédito según el balance
+                        if ($credit->balance <= 0 && $credit->status !== 'completed') {
+                            $credit->status = 'completed';
+                        } elseif ($credit->balance > 0 && $credit->status === 'completed') {
+                            $credit->status = 'active';
+                        }
+
                         $credit->save();
                     }
                 }
@@ -365,6 +379,9 @@ class Payment extends Model
             try {
                 $credit = $payment->credit;
                 if ($credit) {
+                    // Restaurar el balance del crédito
+                    $credit->balance += $payment->amount;
+
                     // Si el pago eliminado estaba asociado a una cuota, verificar si esa cuota ahora queda incompleta
                     if ($payment->installment_number) {
                         $installmentAmount = $credit->installment_amount ?? $credit->calculateInstallmentAmount();
@@ -384,6 +401,11 @@ class Payment extends Model
                     // Actualizar el total pagado si el pago era completado
                     if ($payment->status === 'completed') {
                         $credit->total_paid = max(0, ($credit->total_paid ?? 0) - $payment->amount);
+                    }
+
+                    // Actualizar status del crédito según el balance
+                    if ($credit->balance > 0 && $credit->status === 'completed') {
+                        $credit->status = 'active';
                     }
 
                     $credit->save();

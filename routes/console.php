@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
+use Illuminate\Support\Facades\Log;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 
@@ -19,6 +20,17 @@ Schedule::command('credits:process-scheduled-deliveries --notify')
 Schedule::command('credits:process-scheduled-deliveries --notify')
     ->dailyAt('17:00')
     ->description('Verificar créditos atrasados para entrega');
+
+// Auto-cerrar cajas abiertas del día anterior a la medianoche
+Schedule::command('cash-balances:auto-close')
+    ->dailyAt('00:01')
+    ->description('Auto-cerrar cajas abiertas del día anterior')
+    ->onFailure(function () {
+        Log::error('Failed to auto-close cash balances');
+    })
+    ->onSuccess(function () {
+        Log::info('Cash balances auto-closed successfully');
+    });
 
 /*
 |--------------------------------------------------------------------------

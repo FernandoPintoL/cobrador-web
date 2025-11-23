@@ -298,53 +298,58 @@ class CashBalanceController extends BaseController
             );
         }
 
-        // BLOQUEO ESTRICTO: Verificar que NO existan cajas abiertas de fechas anteriores
+        // Verificar si existen cajas abiertas de fechas anteriores
         $previousOpenBoxes = CashBalance::where('cobrador_id', $cobradorId)
             ->where('date', '<', $date)
             ->where('status', 'open')
             ->orderBy('date', 'asc')
             ->get();
 
-        if ($previousOpenBoxes->isNotEmpty()) {
+        $hasPendingBoxes = $previousOpenBoxes->isNotEmpty();
+        $pendingBoxesInfo = null;
+
+        if ($hasPendingBoxes) {
             $pendingDates = $previousOpenBoxes->pluck('date')->map(function ($d) {
                 return $d instanceof \Carbon\Carbon  ? $d->format('d/m/Y') : $d;
             })->toArray();
 
-            return $this->sendError(
-                'Cajas pendientes de cierre',
-                [
-                    'message'       => 'Debes cerrar las cajas de las siguientes fechas antes de abrir una nueva: ' . implode(', ', $pendingDates),
-                    'pending_boxes' => $previousOpenBoxes->map(function ($box) {
-                        return [
-                            'id'               => $box->id,
-                            'date'             => $box->date,
-                            'initial_amount'   => $box->initial_amount,
-                            'collected_amount' => $box->collected_amount,
-                            'lent_amount'      => $box->lent_amount,
-                            'final_amount'     => $box->final_amount,
-                        ];
-                    }),
-                ],
-                422
-            );
+            $pendingBoxesInfo = $previousOpenBoxes->map(function ($box) {
+                return [
+                    'id'               => $box->id,
+                    'date'             => $box->date,
+                    'initial_amount'   => $box->initial_amount,
+                    'collected_amount' => $box->collected_amount,
+                    'lent_amount'      => $box->lent_amount,
+                    'final_amount'     => $box->final_amount,
+                ];
+            })->toArray();
         }
 
-        // Create new open cash balance
+        // Create new open cash balance (permitiendo apertura con cajas pendientes)
         $initial = $request->initial_amount ?? 0;
 
         $cashBalance = CashBalance::create([
-            'cobrador_id'      => $cobradorId,
-            'date'             => $date,
-            'initial_amount'   => $initial,
-            'collected_amount' => 0,
-            'lent_amount'      => 0,
-            'final_amount'     => $initial,
-            'status'           => 'open',
+            'cobrador_id'                => $cobradorId,
+            'date'                       => $date,
+            'initial_amount'             => $initial,
+            'collected_amount'           => 0,
+            'lent_amount'                => 0,
+            'final_amount'               => $initial,
+            'status'                     => 'open',
+            'has_pending_previous_boxes' => $hasPendingBoxes,
+            'pending_boxes_info'         => $pendingBoxesInfo,
+            'requires_reconciliation'    => $hasPendingBoxes, // Requiere reconciliación si hay cajas pendientes
         ]);
 
         $cashBalance->load(['cobrador']);
 
-        return $this->sendResponse($cashBalance, 'Caja abierta exitosamente');
+        $message = 'Caja abierta exitosamente';
+        if ($hasPendingBoxes) {
+            $pendingDatesStr = implode(', ', $pendingDates);
+            $message = "Caja abierta con ADVERTENCIA: Tienes cajas pendientes de cierre para las fechas: {$pendingDatesStr}. Debes cerrarlas lo antes posible.";
+        }
+
+        return $this->sendResponse($cashBalance, $message);
     }
 
     /**

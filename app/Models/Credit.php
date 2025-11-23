@@ -315,7 +315,7 @@ class Credit extends Model
             case 'weekly':
                 return $startDate->diffInWeeks($currentDate) + 1;
             case 'biweekly':
-                return floor($startDate->diffInWeeks($currentDate) / 2) + 1;
+                return (int) floor($startDate->diffInWeeks($currentDate) / 2) + 1;
             case 'monthly':
                 return $startDate->diffInMonths($currentDate) + 1;
             default:
@@ -394,7 +394,7 @@ class Credit extends Model
     }
 
     /**
-     * Get payment schedule
+     * Get payment schedule with real payment data
      */
     public function getPaymentSchedule(): array
     {
@@ -403,10 +403,27 @@ class Credit extends Model
         $totalInstallments = $this->calculateTotalInstallments();
         $installmentAmount = $this->installment_amount;
 
+        // ✅ OPTIMIZACIÓN: Una sola query para obtener todos los pagos agrupados por cuota
+        $paymentsByInstallment = $this->payments()
+            ->where('status', 'completed')
+            ->select(
+                'installment_number',
+                \DB::raw('SUM(amount) as paid_amount'),
+                \DB::raw('COUNT(*) as payment_count'),
+                \DB::raw('MAX(payment_date) as last_payment_date'),
+                \DB::raw('MAX(payment_method) as payment_method')
+            )
+            ->groupBy('installment_number')
+            ->get()
+            ->keyBy('installment_number');
+
         // Comenzar desde el día siguiente al registro
         $currentDueDate = $startDate->copy()->addDay();
+        $today = Carbon::now();
 
         for ($i = 0; $i < $totalInstallments; $i++) {
+            $installmentNumber = $i + 1;
+
             switch ($this->frequency) {
                 case 'daily':
                     // Para pagos diarios, encontrar el siguiente día hábil (lunes a sábado)
@@ -444,11 +461,42 @@ class Credit extends Model
                     break;
             }
 
+            // ✅ NUEVO: Obtener datos de pagos para esta cuota
+            $paymentData = $paymentsByInstallment->get($installmentNumber);
+            $paidAmount = $paymentData ? (float) $paymentData->paid_amount : 0.0;
+            $paymentCount = $paymentData ? (int) $paymentData->payment_count : 0;
+            $lastPaymentDate = $paymentData ? $paymentData->last_payment_date : null;
+            $paymentMethod = $paymentData ? $paymentData->payment_method : null;
+
+            // ✅ NUEVO: Calcular estados
+            $remainingAmount = $installmentAmount - $paidAmount;
+            $isPaid = $paidAmount >= $installmentAmount;
+            $isPartial = $paidAmount > 0 && $paidAmount < $installmentAmount;
+
+            // ✅ NUEVO: Determinar status basado en datos reales
+            $status = 'pending';
+            if ($isPaid) {
+                $status = 'paid';
+            } elseif ($isPartial) {
+                $status = 'partial';
+            } elseif ($currentDueDate->isPast() && !$isPaid) {
+                $status = 'overdue';
+            }
+
             $schedule[] = [
-                'installment_number' => $i + 1,
+                'installment_number' => $installmentNumber,
                 'due_date'           => $currentDueDate->format('Y-m-d'),
                 'amount'             => $installmentAmount,
-                'status'             => 'pending', // Se puede actualizar con pagos reales
+
+                // ✅ NUEVOS CAMPOS: Datos reales de pagos
+                'paid_amount'        => $paidAmount,
+                'remaining_amount'   => max(0, $remainingAmount),
+                'is_paid'            => $isPaid,
+                'is_partial'         => $isPartial,
+                'status'             => $status,
+                'payment_count'      => $paymentCount,
+                'last_payment_date'  => $lastPaymentDate,
+                'payment_method'     => $paymentMethod,
             ];
 
             // Para pagos diarios, avanzar al siguiente día para la próxima iteración
@@ -858,5 +906,140 @@ class Credit extends Model
             'delivery_notes'            => $this->delivery_notes,
             'rejection_reason'          => $this->rejection_reason,
         ];
+    }
+
+    /**
+     * Recalcular balance, total_paid y paid_installments basado en pagos reales
+     * Esto asegura coherencia entre los datos del crédito y sus pagos
+     *
+     * @return bool True si se realizaron cambios, False si ya estaba coherente
+     */
+    public function recalculateBalance(): bool
+    {
+        $hasChanges = false;
+
+        // Calcular total pagado desde pagos completados
+        $calculatedTotalPaid = $this->payments()
+            ->where('status', 'completed')
+            ->sum('amount');
+
+        // Calcular número de cuotas pagadas
+        $calculatedPaidInstallments = $this->payments()
+            ->where('status', 'completed')
+            ->count();
+
+        // Calcular balance correcto
+        $calculatedBalance = $this->total_amount - $calculatedTotalPaid;
+
+        // Verificar y actualizar total_paid
+        if (abs($this->total_paid - $calculatedTotalPaid) > 0.01) {
+            $this->total_paid = $calculatedTotalPaid;
+            $hasChanges = true;
+        }
+
+        // Verificar y actualizar balance
+        if (abs($this->balance - $calculatedBalance) > 0.01) {
+            $this->balance = $calculatedBalance;
+            $hasChanges = true;
+        }
+
+        // Verificar y actualizar paid_installments
+        if ($this->paid_installments != $calculatedPaidInstallments) {
+            $this->paid_installments = $calculatedPaidInstallments;
+            $hasChanges = true;
+        }
+
+        // Actualizar estado si es necesario
+        if ($this->balance <= 0 && $this->status !== 'completed') {
+            $this->status = 'completed';
+            $hasChanges = true;
+        } elseif ($this->balance > 0 && $this->status === 'completed') {
+            $this->status = 'active';
+            $hasChanges = true;
+        }
+
+        // Guardar si hubo cambios
+        if ($hasChanges) {
+            $this->save();
+            Log::info("Credit #{$this->id} balance recalculated", [
+                'total_paid' => $calculatedTotalPaid,
+                'balance' => $calculatedBalance,
+                'paid_installments' => $calculatedPaidInstallments,
+                'status' => $this->status,
+            ]);
+        }
+
+        return $hasChanges;
+    }
+
+    /**
+     * Verificar si el crédito tiene inconsistencias en su balance
+     *
+     * @return array Array de inconsistencias encontradas (vacío si está coherente)
+     */
+    public function validateBalance(): array
+    {
+        $issues = [];
+
+        // Calcular valores correctos
+        $realTotalPaid = $this->payments()->where('status', 'completed')->sum('amount');
+        $realPaidCount = $this->payments()->where('status', 'completed')->count();
+        $expectedBalance = $this->total_amount - $realTotalPaid;
+
+        // Verificar total_paid
+        if (abs($this->total_paid - $realTotalPaid) > 0.01) {
+            $diff = $this->total_paid - $realTotalPaid;
+            $issues[] = [
+                'field' => 'total_paid',
+                'current' => $this->total_paid,
+                'expected' => $realTotalPaid,
+                'difference' => $diff,
+                'message' => "total_paid debería ser {$realTotalPaid} pero es {$this->total_paid}",
+            ];
+        }
+
+        // Verificar balance
+        if (abs($this->balance - $expectedBalance) > 0.01) {
+            $diff = $this->balance - $expectedBalance;
+            $issues[] = [
+                'field' => 'balance',
+                'current' => $this->balance,
+                'expected' => $expectedBalance,
+                'difference' => $diff,
+                'message' => "balance debería ser {$expectedBalance} pero es {$this->balance}",
+            ];
+        }
+
+        // Verificar paid_installments
+        if ($this->paid_installments != $realPaidCount) {
+            $issues[] = [
+                'field' => 'paid_installments',
+                'current' => $this->paid_installments,
+                'expected' => $realPaidCount,
+                'difference' => $this->paid_installments - $realPaidCount,
+                'message' => "paid_installments debería ser {$realPaidCount} pero es {$this->paid_installments}",
+            ];
+        }
+
+        // Verificar estado
+        if ($this->balance <= 0 && $this->status === 'active') {
+            $issues[] = [
+                'field' => 'status',
+                'current' => $this->status,
+                'expected' => 'completed',
+                'message' => "El crédito debería estar 'completed' (balance: {$this->balance})",
+            ];
+        }
+
+        if ($this->balance > 0 && $this->status === 'completed') {
+            $issues[] = [
+                'field' => 'status',
+                'current' => $this->status,
+                'expected' => 'active',
+                'message' => "El crédito no debería estar 'completed' (balance: {$this->balance})",
+            ];
+        }
+
+        return $issues;
     }
 }

@@ -355,8 +355,9 @@ class CreditWaitingListController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        // Validaciones adicionales para cobradores: cliente asignado y caja abierta
+        // Validaciones adicionales para cobradores: cliente asignado y caja abierta o auto-creada
         $authUser = Auth::user();
+        $cashBalanceWasAutoCreated = false;
         if ($authUser && $authUser->hasRole('cobrador')) {
             // El cobrador solo puede entregar créditos de sus clientes asignados
             $credit->loadMissing('client');
@@ -367,18 +368,39 @@ class CreditWaitingListController extends Controller
                 ], 403);
             }
 
-            // Requerir caja abierta en la fecha de entrega (hoy)
+            // Buscar caja abierta o crear una virtual automáticamente
             $today = now()->toDateString();
             $openCash = CashBalance::where('cobrador_id', $authUser->id)
                 ->whereDate('date', $today)
                 ->where('status', 'open')
                 ->first();
 
+            // Si no existe caja abierta, crear una caja virtual automáticamente
             if (! $openCash) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Caja no abierta: abre tu caja para hoy antes de realizar la entrega del crédito',
-                ], 400);
+                $openCash = CashBalance::create([
+                    'cobrador_id' => $authUser->id,
+                    'date' => $today,
+                    'initial_amount' => 0,
+                    'collected_amount' => 0,
+                    'lent_amount' => 0,
+                    'final_amount' => 0,
+                    'status' => 'open',
+                    'requires_reconciliation' => true,
+                    'closure_notes' => 'Caja creada automáticamente al entregar crédito sin caja abierta',
+                ]);
+
+                $cashBalanceWasAutoCreated = true;
+
+                // Disparar evento de caja auto-creada
+                $manager = $authUser->assignedManager;
+                event(new \App\Events\CashBalanceAutoCreated($openCash, $authUser, $manager, 'credit_delivery'));
+
+                Log::info('Virtual cash balance auto-created for credit delivery', [
+                    'cash_balance_id' => $openCash->id,
+                    'cobrador_id' => $authUser->id,
+                    'credit_id' => $credit->id,
+                    'date' => $today,
+                ]);
             }
         }
 
@@ -435,12 +457,18 @@ class CreditWaitingListController extends Controller
                 }
             }
 
+            $message = 'Crédito entregado al cliente exitosamente';
+            if ($cashBalanceWasAutoCreated) {
+                $message .= ' (Se creó una caja virtual automáticamente - requiere conciliación)';
+            }
+
             return response()->json([
                 'success' => true,
-                'message' => 'Crédito entregado al cliente exitosamente',
+                'message' => $message,
                 'data' => [
                     'credit' => $credit->fresh(),
                     'delivery_status' => $credit->fresh()->getDeliveryStatusInfo(),
+                    'cash_balance_auto_created' => $cashBalanceWasAutoCreated,
                 ],
             ]);
 

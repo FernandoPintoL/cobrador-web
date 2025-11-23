@@ -3,19 +3,24 @@
 namespace App\Listeners;
 
 use App\Events\CreditApproved;
+use App\Services\NotificationService;
 use App\Services\WebSocketNotificationService;
 use Illuminate\Support\Facades\Log;
 
 class SendCreditApprovedNotification
 {
     protected WebSocketNotificationService $webSocketService;
+    protected NotificationService $notificationService;
 
     /**
      * Create the event listener.
      */
-    public function __construct(WebSocketNotificationService $webSocketService)
-    {
+    public function __construct(
+        WebSocketNotificationService $webSocketService,
+        NotificationService $notificationService
+    ) {
         $this->webSocketService = $webSocketService;
+        $this->notificationService = $notificationService;
     }
 
     /**
@@ -30,6 +35,26 @@ class SendCreditApprovedNotification
         ]);
 
         try {
+            // 1. Guardar notificación en DB
+            Log::info('💾 Guardando notificación de crédito aprobado en DB...');
+
+            $this->notificationService->createCreditApprovedNotification(
+                $event->credit,
+                $event->manager,
+                $event->cobrador,
+                $event->entregaInmediata
+            );
+
+            Log::info('✅ Notificación de crédito aprobado guardada en DB exitosamente');
+        } catch (\Exception $e) {
+            Log::error('❌ Failed to save credit approved notification to database', [
+                'credit_id' => $event->credit->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        try {
+            // 2. Enviar por WebSocket
             $this->webSocketService->notifyCreditApproved(
                 $event->credit,
                 $event->manager,

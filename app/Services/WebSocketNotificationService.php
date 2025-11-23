@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\CashBalance;
 use App\Models\Credit;
 use App\Models\Payment;
 use App\Models\User;
@@ -433,6 +434,122 @@ class WebSocketNotificationService
         ]);
 
         return false;
+    }
+
+    /**
+     * Notificar que una caja fue cerrada automáticamente
+     */
+    public function notifyCashBalanceAutoClosed(CashBalance $cashBalance, User $cobrador, ?User $manager = null): bool
+    {
+        if (! $this->isEnabled()) {
+            return false;
+        }
+
+        $payload = [
+            'action' => 'auto_closed',
+            'cash_balance' => [
+                'id' => $cashBalance->id,
+                'date' => $cashBalance->date->toDateString(),
+                'initial_amount' => $cashBalance->initial_amount,
+                'collected_amount' => $cashBalance->collected_amount,
+                'lent_amount' => $cashBalance->lent_amount,
+                'final_amount' => $cashBalance->final_amount,
+                'status' => $cashBalance->status,
+                'auto_closed_at' => $cashBalance->auto_closed_at?->toISOString(),
+                'closure_notes' => $cashBalance->closure_notes,
+            ],
+            'cobrador' => [
+                'id' => (string) $cobrador->id,
+                'name' => $cobrador->name,
+                'email' => $cobrador->email,
+            ],
+        ];
+
+        if ($manager) {
+            $payload['manager'] = [
+                'id' => (string) $manager->id,
+                'name' => $manager->name,
+                'email' => $manager->email,
+            ];
+        }
+
+        return $this->sendRequest('/cash-balance-notification', $payload, 'cash balance auto-closed');
+    }
+
+    /**
+     * Notificar que una caja fue auto-creada
+     */
+    public function notifyCashBalanceAutoCreated(CashBalance $cashBalance, User $cobrador, ?User $manager = null, string $reason = 'payment'): bool
+    {
+        if (! $this->isEnabled()) {
+            return false;
+        }
+
+        $payload = [
+            'action' => 'auto_created',
+            'reason' => $reason,
+            'cash_balance' => [
+                'id' => $cashBalance->id,
+                'date' => $cashBalance->date->toDateString(),
+                'status' => $cashBalance->status,
+                'requires_reconciliation' => $cashBalance->requires_reconciliation,
+            ],
+            'cobrador' => [
+                'id' => (string) $cobrador->id,
+                'name' => $cobrador->name,
+                'email' => $cobrador->email,
+            ],
+        ];
+
+        if ($manager) {
+            $payload['manager'] = [
+                'id' => (string) $manager->id,
+                'name' => $manager->name,
+                'email' => $manager->email,
+            ];
+        }
+
+        return $this->sendRequest('/cash-balance-notification', $payload, 'cash balance auto-created');
+    }
+
+    /**
+     * Notificar que una caja requiere conciliación
+     */
+    public function notifyCashBalanceRequiresReconciliation(CashBalance $cashBalance, User $cobrador, ?User $manager = null, string $reason = ''): bool
+    {
+        if (! $this->isEnabled()) {
+            return false;
+        }
+
+        $payload = [
+            'action' => 'requires_reconciliation',
+            'reason' => $reason,
+            'cash_balance' => [
+                'id' => $cashBalance->id,
+                'date' => $cashBalance->date->toDateString(),
+                'initial_amount' => $cashBalance->initial_amount,
+                'collected_amount' => $cashBalance->collected_amount,
+                'lent_amount' => $cashBalance->lent_amount,
+                'final_amount' => $cashBalance->final_amount,
+                'status' => $cashBalance->status,
+                'requires_reconciliation' => $cashBalance->requires_reconciliation,
+            ],
+            'cobrador' => [
+                'id' => (string) $cobrador->id,
+                'name' => $cobrador->name,
+                'email' => $cobrador->email,
+            ],
+        ];
+
+        if ($manager) {
+            $payload['manager'] = [
+                'id' => (string) $manager->id,
+                'name' => $manager->name,
+                'email' => $manager->email,
+            ];
+        }
+
+        return $this->sendRequest('/cash-balance-notification', $payload, 'cash balance requires reconciliation');
     }
 
     /**

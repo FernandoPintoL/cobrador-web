@@ -485,7 +485,8 @@ class User extends Authenticatable
         $credits = $this->credits()->where('status', 'active')->get();
         foreach ($credits as $credit) {
             $expected = $credit->getExpectedInstallments();
-            $completed = $credit->payments()->where('status', 'completed')->count();
+            // Usar el método correcto que cuenta cuotas completadas (no pagos individuales)
+            $completed = $credit->getCompletedInstallmentsCount();
             $overdue = max(0, $expected - $completed);
             $total += $overdue;
         }
