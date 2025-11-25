@@ -446,4 +446,114 @@ class MapController extends BaseController
             return $this->sendError('Error al obtener clusters de ubicaciones', $e->getMessage(), 500);
         }
     }
+
+    /**
+     * Obtener clientes que se deben visitar hoy (para optimización de rutas)
+     * Criterios: pagos vencidos, pagos que vencen hoy, o próximos a vencer (próximos 3 días)
+     */
+    public function getClientsToVisitToday(Request $request)
+    {
+        try {
+            $currentUser = Auth::user();
+            $today = now()->startOfDay();
+            $next3Days = now()->addDays(3)->endOfDay();
+
+            $query = User::role('client')
+                ->with(['credits' => function ($query) {
+                    $query->where('status', 'active')
+                        ->with('payments');
+                }]);
+
+            // Aplicar filtros según el rol del usuario autenticado
+            if ($currentUser->hasRole('cobrador')) {
+                // Los cobradores solo ven sus clientes asignados
+                $query->where('assigned_cobrador_id', $currentUser->id);
+            } elseif ($currentUser->hasRole('manager')) {
+                // Los managers pueden filtrar por cobrador o ver todos sus cobradores
+                if ($request->has('cobrador_id')) {
+                    $query->where('assigned_cobrador_id', $request->cobrador_id);
+                } else {
+                    // Ver clientes de todos sus cobradores
+                    $cobradorIds = User::role('cobrador')
+                        ->where('assigned_manager_id', $currentUser->id)
+                        ->pluck('id');
+
+                    $query->where(function ($q) use ($currentUser, $cobradorIds) {
+                        $q->where('assigned_manager_id', $currentUser->id)
+                            ->orWhereIn('assigned_cobrador_id', $cobradorIds);
+                    });
+                }
+            }
+
+            // Obtener solo clientes con ubicación
+            $query->whereNotNull('latitude')
+                ->whereNotNull('longitude');
+
+            $clients = $query->get()->map(function ($client) use ($today, $next3Days) {
+                // Calcular información de pagos
+                $nextPayment = null;
+                $nextPaymentDate = null;
+                $nextPaymentAmount = 0;
+                $nextInstallment = null;
+                $hasOverdue = false;
+                $overdueAmount = 0;
+                $priority = 3; // 1 = alta (vencido), 2 = media (hoy), 3 = baja (próximo)
+
+                foreach ($client->credits as $credit) {
+                    foreach ($credit->payments as $payment) {
+                        if ($payment->status === 'overdue') {
+                            $hasOverdue = true;
+                            $overdueAmount += $payment->amount;
+                            $priority = min($priority, 1); // Máxima prioridad
+                        }
+
+                        if ($payment->status === 'pending') {
+                            $paymentDate = \Carbon\Carbon::parse($payment->payment_date);
+
+                            // Pago vence hoy
+                            if ($paymentDate->isToday()) {
+                                $priority = min($priority, 2);
+                            }
+
+                            // Encontrar el próximo pago (más cercano)
+                            if ($paymentDate->between($today, $next3Days)) {
+                                if (!$nextPaymentDate || $paymentDate->lt($nextPaymentDate)) {
+                                    $nextPaymentDate = $paymentDate;
+                                    $nextPaymentAmount = $payment->amount;
+                                    $nextInstallment = $payment->installment_number;
+                                    $nextPayment = $payment;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Solo incluir clientes que tengan pagos vencidos o próximos
+                if ($hasOverdue || $nextPayment) {
+                    return [
+                        'person_id' => $client->id,
+                        'name' => $client->name,
+                        'phone' => $client->phone ?? '',
+                        'address' => $client->address ?? '',
+                        'latitude' => (float) $client->latitude,
+                        'longitude' => (float) $client->longitude,
+                        'client_category' => $client->client_category ?? 'A',
+                        'priority' => $priority, // 1 = urgente, 2 = hoy, 3 = próximo
+                        'has_overdue' => $hasOverdue,
+                        'overdue_amount' => $overdueAmount,
+                        'next_payment_date' => $nextPaymentDate?->format('Y-m-d'),
+                        'next_payment_amount' => $nextPaymentAmount,
+                        'next_installment' => $nextInstallment,
+                        'total_balance' => $client->credits->sum('balance'),
+                    ];
+                }
+
+                return null;
+            })->filter()->values(); // Eliminar nulos y reindexar
+
+            return $this->sendResponse($clients, 'Clientes para visitar hoy obtenidos exitosamente');
+        } catch (\Exception $e) {
+            return $this->sendError('Error al obtener clientes para visitar', $e->getMessage(), 500);
+        }
+    }
 }

@@ -204,6 +204,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/map/clients-by-area', [MapController::class, 'getClientsByArea'])->name('api.map.clients-by-area');
     Route::get('/map/cobrador-routes', [MapController::class, 'getCobradorRoutes'])->name('api.map.cobrador-routes');
     Route::get('/map/location-clusters', [MapController::class, 'getLocationClusters'])->name('api.map.location-clusters');
+    Route::get('/map/clients-to-visit-today', [MapController::class, 'getClientsToVisitToday'])->name('api.map.clients-to-visit-today');
 
     // Dashboard
     Route::get('/dashboard/stats', [DashboardController::class, 'getStats'])->name('api.dashboard.stats');
