@@ -406,19 +406,28 @@ class Credit extends Model
         $installmentAmount = $this->installment_amount;
 
         // ✅ OPTIMIZACIÓN: Una sola query para obtener todos los pagos agrupados por cuota
-        // Incluye pagos completados Y parciales
+        // Incluye pagos completados Y parciales + información del cobrador
         $paymentsByInstallment = $this->payments()
             ->whereIn('status', ['completed', 'partial'])
+            ->with(['receivedBy:id,name']) // Cargar solo id y nombre del cobrador
             ->select(
                 'installment_number',
                 \DB::raw('SUM(amount) as paid_amount'),
                 \DB::raw('COUNT(*) as payment_count'),
                 \DB::raw('MAX(payment_date) as last_payment_date'),
-                \DB::raw('MAX(payment_method) as payment_method')
+                \DB::raw('MAX(payment_method) as payment_method'),
+                \DB::raw('MAX(received_by) as received_by_id')
             )
             ->groupBy('installment_number')
             ->get()
             ->keyBy('installment_number');
+
+        // Cargar nombres de cobradores en un mapa para referencia rápida
+        $receivedByIds = $paymentsByInstallment->pluck('received_by_id')->filter()->unique()->values()->toArray();
+        $cobradores = \App\Models\User::whereIn('id', $receivedByIds)
+            ->select('id', 'name')
+            ->get()
+            ->keyBy('id');
 
         // start_date YA ES el primer día de pago (no necesita +1 día)
         // Esto cambió con la introducción de first_payment_today
@@ -476,6 +485,10 @@ class Credit extends Model
             $paymentCount = $paymentData ? (int) $paymentData->payment_count : 0;
             $lastPaymentDate = $paymentData ? $paymentData->last_payment_date : null;
             $paymentMethod = $paymentData ? $paymentData->payment_method : null;
+            $receivedById = $paymentData ? $paymentData->received_by_id : null;
+            $receivedByName = $receivedById && isset($cobradores[$receivedById])
+                ? $cobradores[$receivedById]->name
+                : null;
 
             // ✅ NUEVO: Calcular estados
             $remainingAmount = $installmentAmount - $paidAmount;
@@ -488,7 +501,9 @@ class Credit extends Model
                 $status = 'paid';
             } elseif ($isPartial) {
                 $status = 'partial';
-            } elseif ($currentDueDate->isPast() && !$isPaid) {
+            } elseif ($currentDueDate->startOfDay()->lt($today->startOfDay()) && !$isPaid) {
+                // Solo marcar como overdue si la fecha es estrictamente anterior a hoy
+                // (no incluye el día actual)
                 $status = 'overdue';
             }
 
@@ -506,6 +521,8 @@ class Credit extends Model
                 'payment_count'      => $paymentCount,
                 'last_payment_date'  => $lastPaymentDate,
                 'payment_method'     => $paymentMethod,
+                'received_by_id'     => $receivedById,
+                'received_by_name'   => $receivedByName,
             ];
 
             // Para pagos diarios, avanzar al siguiente día para la próxima iteración
