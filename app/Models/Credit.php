@@ -67,6 +67,7 @@ class Credit extends Model
         'latitude',
         'longitude',
         'immediate_delivery_requested',
+        'first_payment_today',
         'cash_balance_id',
     ];
 
@@ -75,6 +76,7 @@ class Credit extends Model
         'end_date'                     => 'date',
         'scheduled_delivery_date'      => 'datetime',
         'immediate_delivery_requested' => 'boolean',
+        'first_payment_today'          => 'boolean',
         'approved_at'                  => 'datetime',
         'delivered_at'                 => 'datetime',
         'amount'                       => 'decimal:2',
@@ -404,8 +406,9 @@ class Credit extends Model
         $installmentAmount = $this->installment_amount;
 
         // ✅ OPTIMIZACIÓN: Una sola query para obtener todos los pagos agrupados por cuota
+        // Incluye pagos completados Y parciales
         $paymentsByInstallment = $this->payments()
-            ->where('status', 'completed')
+            ->whereIn('status', ['completed', 'partial'])
             ->select(
                 'installment_number',
                 \DB::raw('SUM(amount) as paid_amount'),
@@ -417,8 +420,9 @@ class Credit extends Model
             ->get()
             ->keyBy('installment_number');
 
-        // Comenzar desde el día siguiente al registro
-        $currentDueDate = $startDate->copy()->addDay();
+        // start_date YA ES el primer día de pago (no necesita +1 día)
+        // Esto cambió con la introducción de first_payment_today
+        $currentDueDate = $startDate->copy();
         $today = Carbon::now();
 
         for ($i = 0; $i < $totalInstallments; $i++) {
@@ -426,13 +430,18 @@ class Credit extends Model
 
             switch ($this->frequency) {
                 case 'daily':
-                    // Para pagos diarios, encontrar el siguiente día hábil (lunes a sábado)
-                    $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                    if ($i > 0) {
+                        // A partir de la segunda cuota, avanzar al siguiente día hábil
+                        $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                    } else {
+                        // Primera cuota: usar start_date ajustado si cae domingo
+                        $currentDueDate = $this->adjustIfSunday($currentDueDate);
+                    }
                     break;
                 case 'weekly':
                     if ($i === 0) {
-                        // Primera cuota: siguiente día hábil después del start_date
-                        $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                        // Primera cuota: ajustar si cae domingo
+                        $currentDueDate = $this->adjustIfSunday($currentDueDate);
                     } else {
                         // Siguientes cuotas: agregar una semana y ajustar si cae domingo
                         $currentDueDate = $currentDueDate->copy()->addWeek();
@@ -659,10 +668,16 @@ class Credit extends Model
      * Este método se ejecuta cuando el cobrador confirma físicamente la entrega del dinero al cliente.
      * AQUÍ es donde se arma el cronograma de pagos:
      * - delivered_at = ahora (momento de la entrega física)
-     * - start_date = día siguiente a la entrega (primer día de pagos)
+     * - start_date = día de entrega O día siguiente según $firstPaymentToday
      * - end_date = calculado según el plazo del crédito
+     *
+     * @param int $deliveredById ID del usuario que entrega el crédito
+     * @param string|null $notes Notas adicionales sobre la entrega
+     * @param bool $firstPaymentToday Si true, el primer pago es HOY (mismo día de entrega).
+     *                                Si false, el primer pago es MAÑANA (día siguiente).
+     * @return bool
      */
-    public function deliverToClient(int $deliveredById, ?string $notes = null): bool
+    public function deliverToClient(int $deliveredById, ?string $notes = null, bool $firstPaymentToday = false): bool
     {
         if ($this->status !== 'waiting_delivery') {
             return false;
@@ -670,19 +685,22 @@ class Credit extends Model
 
         $deliveredAt = now();
 
-        // El cronograma de pagos comienza el día siguiente a la entrega física
-        $startDate = Carbon::parse($deliveredAt)->addDay();
+        // Decidir si el primer pago es hoy o mañana
+        $startDate = $firstPaymentToday
+            ? Carbon::parse($deliveredAt)      // Primer pago HOY
+            : Carbon::parse($deliveredAt)->addDay(); // Primer pago MAÑANA (comportamiento anterior)
 
         // Calcular end_date basado en total_installments y frequency
         $endDate = $this->calculateEndDate($startDate);
 
         $this->update([
-            'status'         => 'active',
-            'delivered_by'   => $deliveredById,
-            'delivered_at'   => $deliveredAt,
-            'start_date'     => $startDate->toDateString(),
-            'end_date'       => $endDate->toDateString(),
-            'delivery_notes' => $notes ? $this->delivery_notes . "\n\nEntrega: " . $notes : $this->delivery_notes,
+            'status'                => 'active',
+            'delivered_by'          => $deliveredById,
+            'delivered_at'          => $deliveredAt,
+            'first_payment_today'   => $firstPaymentToday,
+            'start_date'            => $startDate->toDateString(),
+            'end_date'              => $endDate->toDateString(),
+            'delivery_notes'        => $notes ? $this->delivery_notes . "\n\nEntrega: " . $notes : $this->delivery_notes,
         ]);
 
         return true;
@@ -705,18 +723,23 @@ class Credit extends Model
 
         // Simular el mismo algoritmo que getPaymentSchedule() para encontrar
         // la fecha de la última cuota
-        $currentDueDate = $startDate->copy()->addDay();
+        $currentDueDate = $startDate->copy(); // start_date YA ES el primer día de pago
 
         for ($i = 0; $i < $totalInstallments; $i++) {
             switch ($this->frequency) {
                 case 'daily':
-                    // Para pagos diarios, encontrar el siguiente día hábil (lunes a sábado)
-                    $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                    if ($i > 0) {
+                        // A partir de la segunda cuota, avanzar al siguiente día hábil
+                        $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                    } else {
+                        // Primera cuota: ajustar si cae domingo
+                        $currentDueDate = $this->adjustIfSunday($currentDueDate);
+                    }
                     break;
                 case 'weekly':
                     if ($i === 0) {
-                        // Primera cuota: siguiente día hábil después del start_date
-                        $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                        // Primera cuota: ajustar si cae domingo
+                        $currentDueDate = $this->adjustIfSunday($currentDueDate);
                     } else {
                         // Siguientes cuotas: agregar una semana y ajustar si cae domingo
                         $currentDueDate = $currentDueDate->copy()->addWeek();
@@ -725,8 +748,8 @@ class Credit extends Model
                     break;
                 case 'biweekly':
                     if ($i === 0) {
-                        // Primera cuota: siguiente día hábil después del start_date
-                        $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                        // Primera cuota: ajustar si cae domingo
+                        $currentDueDate = $this->adjustIfSunday($currentDueDate);
                     } else {
                         // Siguientes cuotas: agregar dos semanas y ajustar si cae domingo
                         $currentDueDate = $currentDueDate->copy()->addWeeks(2);
@@ -735,8 +758,8 @@ class Credit extends Model
                     break;
                 case 'monthly':
                     if ($i === 0) {
-                        // Primera cuota: siguiente día hábil después del start_date
-                        $currentDueDate = $this->getNextBusinessDay($currentDueDate);
+                        // Primera cuota: ajustar si cae domingo
+                        $currentDueDate = $this->adjustIfSunday($currentDueDate);
                     } else {
                         // Siguientes cuotas: agregar un mes y ajustar si cae domingo
                         $currentDueDate = $currentDueDate->copy()->addMonth();
@@ -746,11 +769,6 @@ class Credit extends Model
                 default:
                     // Fallback: días simples
                     $currentDueDate->addDay();
-            }
-
-            // Para pagos diarios, avanzar al siguiente día para la próxima iteración
-            if ($this->frequency === 'daily' && $i < $totalInstallments - 1) {
-                $currentDueDate = $currentDueDate->copy()->addDay();
             }
         }
 
@@ -918,12 +936,12 @@ class Credit extends Model
     {
         $hasChanges = false;
 
-        // Calcular total pagado desde pagos completados
+        // Calcular total pagado desde TODOS los pagos (completados y parciales)
         $calculatedTotalPaid = $this->payments()
-            ->where('status', 'completed')
+            ->whereIn('status', ['completed', 'partial'])
             ->sum('amount');
 
-        // Calcular número de cuotas pagadas
+        // Calcular número de cuotas COMPLETAMENTE pagadas (solo completed)
         $calculatedPaidInstallments = $this->payments()
             ->where('status', 'completed')
             ->count();

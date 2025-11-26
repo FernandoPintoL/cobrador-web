@@ -417,7 +417,16 @@ class CreditController extends BaseController
         $pending           = max($totalInstallments - $completedInstallments, 0);
         $credit->setAttribute('pending_installments', $pending);
 
-        return $this->sendResponse($credit);
+        // Generar cronograma de pagos solo para créditos activos
+        $paymentSchedule = null;
+        if ($credit->status === 'active') {
+            $paymentSchedule = $credit->getPaymentSchedule();
+        }
+
+        return $this->sendResponse([
+            'credit' => $credit,
+            'payment_schedule' => $paymentSchedule,
+        ]);
     }
 
     /**
@@ -925,5 +934,73 @@ class CreditController extends BaseController
             'success' => true,
             'debug'   => $debugInfo,
         ]);
+    }
+
+    /**
+     * Get payment schedule for a credit
+     *
+     * Este es el endpoint oficial para obtener el cronograma de pagos.
+     * FUENTE DE VERDAD ÚNICA - El frontend debe usar siempre este endpoint
+     * en lugar de generar el cronograma localmente.
+     */
+    public function getPaymentSchedule(Credit $credit)
+    {
+        // Verificar que el usuario tenga permisos para ver este crédito
+        $currentUser = Auth::user();
+
+        if (!$currentUser) {
+            return $this->sendError('No autenticado', 'Debe iniciar sesión', 401);
+        }
+
+        // Verificar permisos según rol
+        $hasAccess = false;
+
+        if ($currentUser->hasRole('admin')) {
+            $hasAccess = true;
+        } elseif ($currentUser->hasRole('manager')) {
+            // Manager puede ver créditos de sus clientes directos o de sus cobradores
+            $credit->loadMissing('client');
+            if ($credit->client) {
+                $hasAccess = $credit->client->assigned_manager_id === $currentUser->id
+                    || ($credit->client->assignedCobrador
+                        && $credit->client->assignedCobrador->assigned_manager_id === $currentUser->id);
+            }
+        } elseif ($currentUser->hasRole('cobrador')) {
+            // Cobrador puede ver créditos que creó o de sus clientes asignados
+            $credit->loadMissing('client');
+            $hasAccess = $credit->created_by === $currentUser->id
+                || ($credit->client && $credit->client->assigned_cobrador_id === $currentUser->id);
+        }
+
+        if (!$hasAccess) {
+            return $this->sendError('No autorizado', 'No tienes permisos para ver este crédito', 403);
+        }
+
+        // Solo créditos activos o completados tienen cronograma
+        if (!in_array($credit->status, ['active', 'completed'])) {
+            return $this->sendError(
+                'Crédito sin cronograma',
+                'El cronograma solo está disponible para créditos activos o completados',
+                422
+            );
+        }
+
+        // Generar cronograma (fuente de verdad única desde el backend)
+        $schedule = $credit->getPaymentSchedule();
+
+        return $this->sendResponse([
+            'schedule' => $schedule,
+            'credit_info' => [
+                'id' => $credit->id,
+                'status' => $credit->status,
+                'start_date' => $credit->start_date,
+                'end_date' => $credit->end_date,
+                'delivered_at' => $credit->delivered_at,
+                'first_payment_today' => $credit->first_payment_today,
+                'total_installments' => $credit->calculateTotalInstallments(),
+                'installment_amount' => $credit->installment_amount,
+                'frequency' => $credit->frequency,
+            ],
+        ], 'Cronograma de pagos obtenido exitosamente');
     }
 }

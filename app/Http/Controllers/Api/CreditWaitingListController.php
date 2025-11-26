@@ -353,6 +353,7 @@ class CreditWaitingListController extends Controller
 
         $request->validate([
             'notes' => 'nullable|string|max:1000',
+            'first_payment_today' => 'nullable|boolean',
         ]);
 
         // Validaciones adicionales para cobradores: cliente asignado y caja abierta o auto-creada
@@ -406,7 +407,11 @@ class CreditWaitingListController extends Controller
 
         DB::beginTransaction();
         try {
-            $success = $credit->deliverToClient(Auth::id(), $request->notes);
+            $success = $credit->deliverToClient(
+                Auth::id(),
+                $request->notes,
+                $request->boolean('first_payment_today', false)
+            );
 
             if (! $success) {
                 DB::rollBack();
@@ -462,12 +467,17 @@ class CreditWaitingListController extends Controller
                 $message .= ' (Se creó una caja virtual automáticamente - requiere conciliación)';
             }
 
+            // Generar cronograma de pagos (fuente de verdad única)
+            $freshCredit = $credit->fresh();
+            $paymentSchedule = $freshCredit->getPaymentSchedule();
+
             return response()->json([
                 'success' => true,
                 'message' => $message,
                 'data' => [
-                    'credit' => $credit->fresh(),
-                    'delivery_status' => $credit->fresh()->getDeliveryStatusInfo(),
+                    'credit' => $freshCredit,
+                    'payment_schedule' => $paymentSchedule, // ⭐ Incluir cronograma
+                    'delivery_status' => $freshCredit->getDeliveryStatusInfo(),
                     'cash_balance_auto_created' => $cashBalanceWasAutoCreated,
                 ],
             ]);

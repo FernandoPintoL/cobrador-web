@@ -109,6 +109,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Créditos - Rutas específicas PRIMERO (antes del resource)
     Route::get('/credits/frequencies/available', [CreditController::class, 'getAvailableFrequencies'])->name('api.credits.frequencies');
     Route::get('/credits/{credit}/remaining-installments', [CreditController::class, 'getRemainingInstallments'])->name('api.credits.remaining-installments');
+    Route::get('/credits/{credit}/payment-schedule', [CreditController::class, 'getPaymentSchedule'])->name('api.credits.payment-schedule');
     Route::get('/credits/client/{client}', [CreditController::class, 'getByClient'])->name('api.credits.by-client');
     Route::get('/credits/cobrador/{cobrador}', [CreditController::class, 'getByCobrador'])->name('api.credits.by-cobrador');
     Route::get('/credits/cobrador/{cobrador}/stats', [CreditController::class, 'getCobradorStats'])->name('api.credits.cobrador.stats');
