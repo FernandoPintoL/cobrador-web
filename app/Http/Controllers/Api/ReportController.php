@@ -75,9 +75,13 @@ class ReportController extends Controller
      * if ($format === 'excel') { ... }
      * etc.
      *
+     * IMPORTANTE: Este método espera que $data sea una Collection de arrays
+     * con toda la información ya formateada por los Services.
+     * El campo '_model' se usa solo para vistas HTML/PDF/Excel, pero se excluye del JSON.
+     *
      * @param string $reportName Nombre del reporte (ej: 'payments', 'credits')
      * @param string $format Formato solicitado
-     * @param Collection $data Datos para retornar
+     * @param Collection $data Datos para retornar (Collection de arrays con toda la info)
      * @param array $summary Resumen del reporte
      * @param string $generatedAt Timestamp de generación
      * @param string $generatedBy Nombre del usuario
@@ -116,6 +120,7 @@ class ReportController extends Controller
         ];
 
         // Para JSON, limpiar el _model para una respuesta más limpia
+        // El frontend NO necesita el modelo Eloquent completo
         $jsonData = $data->map(function ($item) {
             if (is_array($item) && isset($item['_model'])) {
                 $cleaned = $item;
@@ -192,6 +197,8 @@ class ReportController extends Controller
      *
      * ✅ ARQUITECTURA CENTRALIZADA - OPCIÓN 3
      * Usa PaymentReportService + helpers centralizados
+     *
+     * ✅ ESTANDARIZADO: Usa los datos del DTO directamente (sin mapeo extra)
      */
     public function paymentsReport(Request $request)
     {
@@ -209,7 +216,8 @@ class ReportController extends Controller
         );
 
         $format = $this->getRequestedFormat($request);
-        $data   = collect($reportDTO->getPayments())->map(fn($p) => $p['_model']);
+        // ✅ Usar datos del DTO directamente (ya incluyen _model y toda la info)
+        $data   = $reportDTO->getPayments();
 
         return $this->respondWithReport(
             reportName: 'payments',
@@ -262,6 +270,8 @@ class ReportController extends Controller
      * Reporte de Usuarios
      * ✅ SOLO DISPONIBLE PARA ADMIN/MANAGER
      * Otras roles reciben 403 Forbidden
+     *
+     * ✅ ESTANDARIZADO: Usa los datos del DTO directamente (sin mapeo extra)
      */
     public function usersReport(Request $request)
     {
@@ -287,7 +297,8 @@ class ReportController extends Controller
         );
 
         $format = $this->getRequestedFormat($request);
-        $data   = collect($reportDTO->getUsers())->map(fn($u) => $u['_model']);
+        // ✅ Usar datos del DTO directamente (ya incluyen _model y toda la info)
+        $data   = $reportDTO->getUsers();
 
         return $this->respondWithReport(
             reportName: 'users',
@@ -302,6 +313,8 @@ class ReportController extends Controller
 
     /**
      * Reporte de Balances
+     *
+     * ✅ ESTANDARIZADO: Usa los datos del DTO directamente (sin mapeo extra)
      */
     public function balancesReport(Request $request)
     {
@@ -321,7 +334,8 @@ class ReportController extends Controller
         );
 
         $format = $this->getRequestedFormat($request);
-        $data   = collect($reportDTO->getBalances())->map(fn($b) => $b['_model']);
+        // ✅ Usar datos del DTO directamente (ya incluyen _model y toda la info)
+        $data   = $reportDTO->getBalances();
 
         return $this->respondWithReport(
             reportName: 'balances',
@@ -365,7 +379,8 @@ class ReportController extends Controller
             );
 
             $format = $this->getRequestedFormat($request);
-            $data   = collect($reportDTO->getCredits())->map(fn($c) => $c['_model']);
+            // ✅ Usar datos del DTO directamente (ya incluyen _model y toda la info)
+            $data   = $reportDTO->getCredits();
 
             return $this->respondWithReport(
                 reportName: 'overdue',
@@ -489,7 +504,8 @@ class ReportController extends Controller
         );
 
         $format = $this->getRequestedFormat($request);
-        $data   = collect($reportDTO->getData())->map(fn($c) => $c['_model']);
+        // ✅ Usar datos del DTO directamente (ya incluyen _model y toda la info)
+        $data   = $reportDTO->getData();
 
         return $this->respondWithReport(
             reportName: 'waiting-list',
@@ -562,7 +578,8 @@ class ReportController extends Controller
             );
 
             $format = $this->getRequestedFormat($request);
-            $data   = collect($reportDTO->getData())->map(fn($c) => $c['_model']);
+            // ✅ Usar datos del DTO directamente (ya incluyen _model y toda la info)
+            $data   = $reportDTO->getData();
 
             return $this->respondWithReport(
                 reportName: 'portfolio',
@@ -635,7 +652,7 @@ class ReportController extends Controller
                 'icon'    => 'file-invoice-dollar',
                 'color'   => '#3b82f6',
                 'path'    => '/api/reports/credits',
-                'formats' => ['html', 'json', ' excel', 'pdf'],
+                'formats' => ['html', 'json', 'excel', 'pdf'],
             ],
             [
                 'name'    => 'payments',
