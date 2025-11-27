@@ -27,7 +27,10 @@ class OverdueExport implements FromCollection, WithHeadings, WithMapping, WithSt
      */
     public function collection()
     {
-        return $this->credits;
+        // ✅ Si los items son arrays con _model, extraer el modelo
+        return $this->credits->map(fn($item) =>
+            is_array($item) && isset($item['_model']) ? $item['_model'] : $item
+        );
     }
 
     /**

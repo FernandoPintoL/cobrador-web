@@ -26,6 +26,14 @@ class UsersExport implements FromCollection, ShouldAutoSize, WithHeadings, WithM
 
     public function collection(): Collection
     {
+        // ✅ Si ya es Collection (datos del Service), extraer _model
+        // Si es Query Builder (legacy), ejecutar get()
+        if ($this->query instanceof Collection) {
+            return $this->query->map(fn($item) =>
+                is_array($item) && isset($item['_model']) ? $item['_model'] : $item
+            );
+        }
+
         return $this->query->with(['roles', 'assignedManager'])->get();
     }
 

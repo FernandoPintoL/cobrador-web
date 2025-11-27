@@ -110,16 +110,24 @@ class BalanceReportService
     {
         $totalDiscrepancies = 0;
         $balancesWithIssues = 0;
+        $totalDifferences = 0; // Para calcular promedio
 
         foreach ($balances as $balance) {
             $expected = $balance->initial_amount + $balance->collected_amount - $balance->lent_amount;
             $difference = $balance->final_amount - $expected;
+
+            $totalDifferences += $difference; // Sumar diferencia (puede ser + o -)
 
             if (abs($difference) > 0.01) {
                 $totalDiscrepancies += abs($difference);
                 $balancesWithIssues++;
             }
         }
+
+        // Calcular diferencia promedio
+        $averageDifference = $balances->count() > 0
+            ? $totalDifferences / $balances->count()
+            : 0;
 
         return [
             'total_records' => $balances->count(),
@@ -139,6 +147,9 @@ class BalanceReportService
             'open_balances' => $balances->where('status', 'open')->count(),
             'closed_balances' => $balances->where('status', 'closed')->count(),
             'reconciled_balances' => $balances->where('status', 'reconciled')->count(),
+            // ✅ FIX: Agregar average_difference que la vista necesita
+            'average_difference' => (float) round($averageDifference, 2),
+            'average_difference_formatted' => 'Bs ' . number_format($averageDifference, 2),
         ];
     }
 }

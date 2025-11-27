@@ -81,8 +81,14 @@
         ];
 
         $credits_custom = $credits->map(function($credit) {
-            $daysOverdue = $credit->days_overdue ?? 0;
-            $overdueInstallments = $credit->overdue_installments ?? 0;
+            // ✅ Extraer el modelo Eloquent si existe (nuevo formato con _model)
+            $model = is_array($credit) && isset($credit['_model']) ? $credit['_model'] : $credit;
+
+            // ✅ Si es array, usar directamente; si es modelo, convertir a array
+            $creditArray = is_array($credit) ? $credit : $credit->toArray();
+
+            $daysOverdue = $creditArray['days_overdue'] ?? 0;
+            $overdueInstallments = $creditArray['overdue_installments'] ?? 0;
 
             // Generador de icon basado en días
             $daysIcon = match(true) {
@@ -99,19 +105,19 @@
             };
 
             return (object) array_merge(
-                $credit->toArray(),
+                $creditArray,
                 [
-                    'client_name' => $credit->client->name ?? 'N/A',
-                    'client_category' => $credit->client->client_category ?? 'N/A',
-                    'cobrador_name' => $credit->deliveredBy->name ?? $credit->createdBy->name ?? 'N/A',
+                    'client_name' => $model->client->name ?? 'N/A',
+                    'client_category' => $model->client->client_category ?? 'N/A',
+                    'cobrador_name' => $model->deliveredBy->name ?? $model->createdBy->name ?? 'N/A',
                     'days_overdue_display' => $daysIcon . ' ' . $daysOverdue . 'd',
-                    'overdue_amount_formatted' => 'Bs ' . number_format($credit->overdue_amount, 2),
-                    'balance_formatted' => 'Bs ' . number_format($credit->balance, 2),
+                    'overdue_amount_formatted' => 'Bs ' . number_format($creditArray['overdue_amount'] ?? 0, 2),
+                    'balance_formatted' => 'Bs ' . number_format($creditArray['balance'] ?? 0, 2),
                     'overdue_installments_display' => $installmentsIcon . ' ' . $overdueInstallments,
-                    'total_installments_display' => $credit->total_installments ?? 0,
-                    'completion_rate_display' => $credit->completion_rate . '%',
-                    'amount_formatted' => 'Bs ' . number_format($credit->amount, 2),
-                    'total_amount_formatted' => 'Bs ' . number_format($credit->total_amount ?? $credit->amount * 1.1, 2),
+                    'total_installments_display' => $creditArray['total_installments'] ?? 0,
+                    'completion_rate_display' => ($creditArray['completion_rate'] ?? 0) . '%',
+                    'amount_formatted' => 'Bs ' . number_format($creditArray['amount'] ?? 0, 2),
+                    'total_amount_formatted' => 'Bs ' . number_format($creditArray['total_amount'] ?? ($creditArray['amount'] ?? 0) * 1.1, 2),
                 ]
             );
         });

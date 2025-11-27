@@ -26,6 +26,13 @@ class PaymentsExport implements FromCollection, ShouldAutoSize, WithHeadings, Wi
 
     public function collection(): Collection
     {
+        // ✅ Si ya es Collection (datos del Service), extraer _model
+        // Si es Query Builder (legacy), ejecutar get()
+        if ($this->query instanceof Collection) {
+            // Extraer el modelo Eloquent de cada elemento
+            return $this->query->map(fn($item) => $item['_model'] ?? $item);
+        }
+
         return $this->query->get();
     }
 

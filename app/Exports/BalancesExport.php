@@ -24,7 +24,12 @@ class BalancesExport implements FromCollection, WithHeadings, WithMapping, WithS
 
     public function collection(): Collection
     {
-        return collect($this->balances);
+        $collection = collect($this->balances);
+
+        // ✅ Si los items son arrays con _model, extraer el modelo
+        return $collection->map(fn($item) =>
+            is_array($item) && isset($item['_model']) ? $item['_model'] : $item
+        );
     }
 
     public function headings(): array
