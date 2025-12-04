@@ -60,17 +60,18 @@ class DailyActivityService
     private function buildActivitiesData($cobradores, string $date, object $currentUser): Collection
     {
         return $cobradores->map(function ($cobrador) use ($date) {
-            // Pagos cobrados por este cobrador
+            // Pagos cobrados por este cobrador ese día
             $payments = Payment::with(['credit.client', 'cobrador'])
                 ->whereDate('payment_date', $date)
                 ->where('cobrador_id', $cobrador->id)
+                ->whereIn('status', ['completed', 'partial'])
                 ->get();
 
-            // Créditos entregados por este cobrador
+            // Créditos entregados por este cobrador ese día
             $credits = Credit::with(['client', 'deliveredBy'])
                 ->whereDate('delivered_at', $date)
                 ->where('delivered_by', $cobrador->id)
-                ->where('status', '!=', 'rejected')
+                ->whereIn('status', ['active', 'paid_off', 'overdue'])
                 ->get();
 
             // Estado de caja
@@ -78,15 +79,29 @@ class DailyActivityService
                 ->whereDate('date', $date)
                 ->first();
 
-            // Créditos activos creados/asignados a este cobrador
-            $createdCredits = Credit::where('created_by', $cobrador->id)
-                ->where('status', 'active')
+            // ✅ CORRECCIÓN: Calcular pagos esperados usando getPaymentSchedule()
+            $activeCredits = Credit::where('created_by', $cobrador->id)
+                ->whereIn('status', ['active', 'overdue'])
+                ->where('start_date', '<=', $date)
                 ->get();
 
-            $totalExpected = $createdCredits->count();
+            $totalExpected = 0;
+            foreach ($activeCredits as $credit) {
+                // Usar función existente que calcula el calendario completo
+                $schedule = $credit->getPaymentSchedule();
+
+                // Contar cuotas esperadas para esa fecha que NO están pagadas
+                $expectedForDate = collect($schedule)->filter(function($installment) use ($date) {
+                    return $installment['due_date'] === $date
+                        && $installment['status'] !== 'paid';
+                });
+
+                $totalExpected += $expectedForDate->count();
+            }
+
             $collected = $payments->count();
-            $pending = $totalExpected - $collected;
-            $efficiency = $totalExpected > 0 ? round(($collected / $totalExpected) * 100, 2) : 0;
+            $pending = max(0, $totalExpected - $collected);
+            $efficiency = $totalExpected > 0 ? round(($collected / $totalExpected) * 100, 2) : 100;
 
             return [
                 'cobrador_name' => $cobrador->name,
@@ -151,7 +166,7 @@ class DailyActivityService
             }
         }
 
-        $overallEfficiency = $totalExpected > 0 ? round(($totalCollected / $totalExpected) * 100, 2) : 0;
+        $overallEfficiency = $totalExpected > 0 ? round(($totalCollected / $totalExpected) * 100, 2) : 100;
 
         return [
             'date' => $dateCarbon->format('Y-m-d'),
@@ -163,7 +178,7 @@ class DailyActivityService
                 'payments_collected' => $totalPaymentsCollected,
                 'amount_collected' => round($totalAmountCollected, 2),
                 'expected_payments' => $totalExpected,
-                'pending_deliveries' => $totalExpected - $totalCollected,
+                'pending_payments' => max(0, $totalExpected - $totalCollected),
             ],
             'overall_efficiency' => $overallEfficiency,
             'cash_balances' => [

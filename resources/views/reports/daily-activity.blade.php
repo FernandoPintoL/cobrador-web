@@ -16,7 +16,7 @@
             'Créditos entregados' => $summary['totals']['credits_delivered'] . ' (Bs ' . number_format($summary['totals']['amount_lent'], 2) . ')',
             'Pagos cobrados' => $summary['totals']['payments_collected'] . ' (Bs ' . number_format($summary['totals']['amount_collected'], 2) . ')',
             'Pagos esperados' => $summary['totals']['expected_payments'],
-            'Pendientes de entregar' => $summary['totals']['pending_deliveries'],
+            'Pagos pendientes' => $summary['totals']['pending_payments'],
             'Eficiencia general' => $summary['overall_efficiency'] . '%',
             'Cajas abiertas' => $summary['cash_balances']['opened'],
             'Cajas cerradas' => $summary['cash_balances']['closed'],

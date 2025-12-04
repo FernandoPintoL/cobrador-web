@@ -112,11 +112,21 @@ class ReportController extends Controller
             'generated_at' => $generatedAtCarbon,
             'generated_by' => $generatedBy,
             // Variables con nombres específicos para cada reporte
+            // Todos apuntan a $data para compatibilidad con diferentes blades
             'credits'      => $data,
             'payments'     => $data,
             'users'        => $data,
             'balances'     => $data,
-            'activities'   => $data, // Para el reporte de actividad diaria
+            'activities'   => $data,
+            'projections'  => $data, // Para cash-flow-forecast
+            'commissions'  => $data, // Para commissions
+            'performance'  => $data, // Para performance
+            'portfolio_by_cobrador' => $summary['portfolio_by_cobrador'] ?? [],
+            'portfolio_by_category' => $summary['portfolio_by_category'] ?? [],
+            'top_clients_by_balance' => $summary['top_clients_by_balance'] ?? [],
+            'portfolio_by_age' => $summary['portfolio_by_age'] ?? [],
+            'pending_approval' => $summary['pending_approval'] ?? [],
+            'waiting_delivery' => $summary['waiting_delivery'] ?? [],
         ];
 
         // Para JSON, limpiar el _model para una respuesta más limpia
@@ -434,6 +444,7 @@ class ReportController extends Controller
                 summary: $reportDTO->getSummary(),
                 generatedAt: $reportDTO->generated_at,
                 generatedBy: $reportDTO->generated_by,
+                exportClass: PerformanceExport::class,
             );
         }, $request);
     }
@@ -474,6 +485,7 @@ class ReportController extends Controller
             summary: $reportDTO->getSummary(),
             generatedAt: $reportDTO->generated_at,
             generatedBy: $reportDTO->generated_by,
+            exportClass: \App\Exports\CashFlowForecastExport::class,
         );
     }
 
@@ -514,6 +526,7 @@ class ReportController extends Controller
             summary: $reportDTO->getSummary(),
             generatedAt: $reportDTO->generated_at,
             generatedBy: $reportDTO->generated_by,
+            exportClass: WaitingListExport::class,
         );
     }
 
@@ -588,6 +601,7 @@ class ReportController extends Controller
                 summary: $reportDTO->getSummary(),
                 generatedAt: $reportDTO->generated_at,
                 generatedBy: $reportDTO->generated_by,
+                exportClass: PortfolioExport::class,
             );
         }, $request);
     }
@@ -630,6 +644,7 @@ class ReportController extends Controller
                 summary: $reportDTO->getSummary(),
                 generatedAt: $reportDTO->generated_at,
                 generatedBy: $reportDTO->generated_by,
+                exportClass: CommissionsExport::class,
             );
         }, $request);
     }

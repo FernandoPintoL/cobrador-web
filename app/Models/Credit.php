@@ -301,28 +301,36 @@ class Credit extends Model
 
     /**
      * Get expected installments based on current date
+     *
+     * ✅ CORREGIDO: Ahora usa getPaymentSchedule() para calcular correctamente
+     * considerando días hábiles (lunes-sábado, omite domingos) y el calendario real.
      */
     public function getExpectedInstallments(): int
     {
-        $startDate   = Carbon::parse($this->start_date);
-        $currentDate = Carbon::now();
+        $startDate = Carbon::parse($this->start_date);
+        $currentDate = Carbon::now()->startOfDay();
 
         if ($currentDate->lt($startDate)) {
             return 0;
         }
 
-        switch ($this->frequency) {
-            case 'daily':
-                return $startDate->diffInDays($currentDate) + 1;
-            case 'weekly':
-                return $startDate->diffInWeeks($currentDate) + 1;
-            case 'biweekly':
-                return (int) floor($startDate->diffInWeeks($currentDate) / 2) + 1;
-            case 'monthly':
-                return $startDate->diffInMonths($currentDate) + 1;
-            default:
-                return 0;
+        // ✅ Usar el calendario real que considera días hábiles
+        $schedule = $this->getPaymentSchedule();
+
+        $expectedCount = 0;
+        foreach ($schedule as $installment) {
+            $dueDate = Carbon::parse($installment['due_date'])->startOfDay();
+
+            // Contar cuotas cuya fecha de vencimiento ya pasó o es hoy
+            if ($dueDate->lte($currentDate)) {
+                $expectedCount++;
+            } else {
+                // Las siguientes cuotas son futuras, no contarlas
+                break;
+            }
         }
+
+        return $expectedCount;
     }
 
     /**
