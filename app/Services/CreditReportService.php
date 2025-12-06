@@ -93,11 +93,11 @@ class CreditReportService
 
         // Filtros por fecha
         if (!empty($filters['start_date'])) {
-            $query->whereDate('created_at', '>=', $filters['start_date']);
+            $query->whereDate('credits.created_at', '>=', $filters['start_date']);
         }
 
         if (!empty($filters['end_date'])) {
-            $query->whereDate('created_at', '<=', $filters['end_date']);
+            $query->whereDate('credits.created_at', '<=', $filters['end_date']);
         }
 
         // ✅ AUTORIZACIÓN CENTRALIZADA - Maneja múltiples relaciones con nombres correctos
