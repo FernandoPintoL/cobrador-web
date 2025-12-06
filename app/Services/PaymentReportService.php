@@ -50,15 +50,23 @@ class PaymentReportService
     {
         // 1. Obtener pagos con filtros aplicados
         $query = $this->buildQuery($filters, $currentUser);
-        $payments = $query->orderBy('payment_date', 'desc')->get();
 
-        // 2. Transformar payments a PaymentResourceData (cálculos + formatos)
+        // 2. Ordenar por cobrador (para agrupar visualmente) y luego por fecha
+        // Esto agrupa visualmente los pagos del mismo cobrador
+        $payments = $query
+            ->join('users as cobrador_user', 'payments.cobrador_id', '=', 'cobrador_user.id')
+            ->orderBy('cobrador_user.name', 'asc')  // Agrupar por nombre del cobrador
+            ->orderBy('payments.payment_date', 'desc')  // Dentro de cada grupo, ordenar por fecha
+            ->select('payments.*')  // Seleccionar solo columnas de payments para evitar conflictos
+            ->get();
+
+        // 3. Transformar payments a PaymentResourceData (cálculos + formatos)
         $transformedPayments = $this->transformPayments($payments);
 
-        // 3. Calcular resumen agregado (reutiliza caché de transformación)
+        // 4. Calcular resumen agregado (reutiliza caché de transformación)
         $summary = $this->calculateSummary($payments, $transformedPayments);
 
-        // 4. Retornar DTO con todos los datos
+        // 5. Retornar DTO con todos los datos
         return new PaymentReportDTO(
             payments: $transformedPayments,
             summary: $summary,

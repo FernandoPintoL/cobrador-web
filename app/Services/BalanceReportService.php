@@ -22,7 +22,15 @@ class BalanceReportService
     public function generateReport(array $filters, object $currentUser): BalanceReportDTO
     {
         $query = $this->buildQuery($filters, $currentUser);
-        $balances = $query->orderBy('date', 'desc')->get();
+
+        // Ordenar por cobrador (para agrupar visualmente) y luego por fecha
+        // Esto agrupa visualmente los balances del mismo cobrador
+        $balances = $query
+            ->join('users as cobrador_user', 'cash_balances.cobrador_id', '=', 'cobrador_user.id')
+            ->orderBy('cobrador_user.name', 'asc')  // Agrupar por nombre del cobrador
+            ->orderBy('cash_balances.date', 'desc')  // Dentro de cada grupo, ordenar por fecha
+            ->select('cash_balances.*')  // Seleccionar solo columnas de cash_balances para evitar conflictos
+            ->get();
 
         if (!empty($filters['with_discrepancies'])) {
             $balances = $balances->filter(function ($balance) {

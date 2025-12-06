@@ -660,10 +660,11 @@ class ReportController extends Controller
         $user = Auth::user();
 
         // ✅ Reportes disponibles para TODOS los usuarios autenticados
+        // ℹ️ Los emojis/iconos son responsabilidad del frontend (Separation of Concerns)
         $reports = [
             [
                 'name'    => 'credits',
-                'label'   => '💳 Reporte de Créditos',
+                'label'   => 'Reporte de Créditos',
                 'icon'    => 'file-invoice-dollar',
                 'color'   => '#3b82f6',
                 'path'    => '/api/reports/credits',
@@ -671,7 +672,7 @@ class ReportController extends Controller
             ],
             [
                 'name'    => 'payments',
-                'label'   => '💵 Reporte de Pagos',
+                'label'   => 'Reporte de Pagos',
                 'icon'    => 'money-bill-wave',
                 'color'   => '#10b981',
                 'path'    => '/api/reports/payments',
@@ -679,7 +680,7 @@ class ReportController extends Controller
             ],
             [
                 'name'    => 'balances',
-                'label'   => '💰 Reporte de Balances',
+                'label'   => 'Reporte de Balances',
                 'icon'    => 'scale-balanced',
                 'color'   => '#f59e0b',
                 'path'    => '/api/reports/balances',
@@ -687,7 +688,7 @@ class ReportController extends Controller
             ],
             [
                 'name'    => 'overdue',
-                'label'   => '⏰ Reporte de Mora',
+                'label'   => 'Reporte de Mora',
                 'icon'    => 'hourglass-end',
                 'color'   => '#ef4444',
                 'path'    => '/api/reports/overdue',
@@ -695,7 +696,7 @@ class ReportController extends Controller
             ],
             [
                 'name'    => 'daily-activity',
-                'label'   => '📅 Reporte de Actividad Diaria',
+                'label'   => 'Reporte de Actividad Diaria',
                 'icon'    => 'calendar-day',
                 'color'   => '#ec4899',
                 'path'    => '/api/reports/daily-activity',
@@ -703,7 +704,7 @@ class ReportController extends Controller
             ],
             /* [
                 'name'    => 'portfolio',
-                'label'   => '💼 Reporte de Cartera',
+                'label'   => 'Reporte de Cartera',
                 'icon'    => 'briefcase',
                 'color'   => '#6366f1',
                 'path'    => '/api/reports/portfolio',
@@ -715,7 +716,7 @@ class ReportController extends Controller
         if ($user->hasAnyRole(['admin', 'manager'])) {
             /*$reports[] = [
                 'name'    => 'performance',
-                'label'   => '📊 Reporte de Desempeño',
+                'label'   => 'Reporte de Desempeño',
                 'icon'    => 'chart-line',
                 'color'   => '#06b6d4',
                 'path'    => '/api/reports/performance',
@@ -724,7 +725,7 @@ class ReportController extends Controller
 
             $reports[] = [
                 'name'    => 'users',
-                'label'   => '👤 Reporte de Usuarios',
+                'label'   => 'Reporte de Usuarios',
                 'icon'    => 'users',
                 'color'   => '#8b5cf6',
                 'path'    => '/api/reports/users',
@@ -733,7 +734,7 @@ class ReportController extends Controller
 
             $reports[] = [
                 'name'    => 'cash-flow-forecast',
-                'label'   => '📈 Pronóstico de Flujo de Caja',
+                'label'   => 'Pronóstico de Flujo de Caja',
                 'icon'    => 'chart-line',
                 'color'   => '#14b8a6',
                 'path'    => '/api/reports/cash-flow-forecast',
@@ -742,7 +743,7 @@ class ReportController extends Controller
 
             $reports[] = [
                 'name'    => 'waiting-list',
-                'label'   => '⏳ Créditos en Espera',
+                'label'   => 'Créditos en Espera',
                 'icon'    => 'hourglass',
                 'color'   => '#f97316',
                 'path'    => '/api/reports/waiting-list',
@@ -751,7 +752,7 @@ class ReportController extends Controller
 
             $reports[] = [
                 'name'    => 'commissions',
-                'label'   => '💎 Reporte de Comisiones',
+                'label'   => 'Reporte de Comisiones',
                 'icon'    => 'percent',
                 'color'   => '#eab308',
                 'path'    => '/api/reports/commissions',
@@ -760,7 +761,7 @@ class ReportController extends Controller
 
             $reports[] = [
                 'name'    => 'portfolio',
-                'label'   => '💼 Reporte de Cartera',
+                'label'   => 'Reporte de Cartera',
                 'icon'    => 'briefcase',
                 'color'   => '#6366f1',
                 'path'    => '/api/reports/portfolio',

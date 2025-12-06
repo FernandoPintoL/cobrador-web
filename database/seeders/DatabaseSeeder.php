@@ -33,7 +33,7 @@ class DatabaseSeeder extends Seeder
         $manager = User::factory()->create([
             'name' => 'Manager',
             'email' => 'app@manager.com',
-            'ci' => '8956887',
+            'ci' => '1234567899',
             'password' => bcrypt('password'),
         ]);
 
@@ -44,7 +44,7 @@ class DatabaseSeeder extends Seeder
         $cobrador = User::factory()->create([
             'name' => 'App Cobrador',
             'email' => 'app@cobrador.com',
-            'ci' => '8956886',
+            'ci' => '12345678999',
             'assigned_manager_id' => $manager->id,
             'password' => bcrypt('password'),
         ]);

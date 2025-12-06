@@ -17,7 +17,28 @@ class UserController extends BaseController
      */
     public function index(Request $request)
     {
+        $currentUser = Auth::user();
         $query = User::with(['roles', 'permissions']);
+
+        // 🔒 AUTORIZACIÓN: Filtrar según el rol del usuario autenticado
+        if ($currentUser->hasRole('manager')) {
+            // Manager solo ve:
+            // 1. Sus cobradores asignados
+            // 2. Sus clientes asignados
+            $query->where(function ($q) use ($currentUser) {
+                $q->where('assigned_manager_id', $currentUser->id) // Usuarios asignados directamente al manager
+                  ->orWhereIn('assigned_cobrador_id', function ($subQ) use ($currentUser) {
+                      // O usuarios asignados a los cobradores del manager
+                      $subQ->select('id')
+                          ->from('users')
+                          ->where('assigned_manager_id', $currentUser->id);
+                  });
+            });
+        } elseif ($currentUser->hasRole('cobrador')) {
+            // Cobrador solo ve sus clientes asignados
+            $query->where('assigned_cobrador_id', $currentUser->id);
+        }
+        // Admin ve todos los usuarios (sin filtro adicional)
 
         // Filtro por roles
         if ($request->has('roles')) {
@@ -874,11 +895,13 @@ class UserController extends BaseController
         }
 
         // Obtener solo usuarios con rol 'cobrador' asignados a este manager
+        // Incluye el conteo de clientes asignados a cada cobrador
         $cobradores = User::whereHas('roles', function ($query) {
             $query->where('name', 'cobrador');
         })
             ->where('assigned_manager_id', $manager->id)
             ->with(['roles', 'permissions'])
+            ->withCount('assignedClients') // Agrega assigned_clients_count al resultado
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('id', 'ilike', "%{$search}%")

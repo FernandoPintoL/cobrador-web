@@ -64,13 +64,21 @@ trait AuthorizeReportAccessTrait
             return $query->where($relationship, $currentUser->id);
         }
 
-        // Manager ve datos de sus cobradores asignados
+        // Manager ve datos de sus cobradores asignados O donde él es el responsable directo
         if ($currentUser->hasRole('manager')) {
-            // Si es relación tipo "cobrador_id", buscar el nombre de la relación
-            $relationName = str_replace('_id', '', $relationship);
+            return $query->where(function ($q) use ($currentUser, $relationship) {
+                // Si es relación tipo "cobrador_id", buscar el nombre de la relación
+                $relationName = str_replace('_id', '', $relationship);
 
-            return $query->whereHas($relationName, function ($subQuery) use ($currentUser) {
-                $subQuery->where('assigned_manager_id', $currentUser->id);
+                // 1. Manager es directamente responsable
+                if (str_contains($relationship, '_id')) {
+                    $q->where($relationship, $currentUser->id);
+                }
+
+                // 2. O es un cobrador asignado al manager
+                $q->orWhereHas($relationName, function ($subQuery) use ($currentUser) {
+                    $subQuery->where('assigned_manager_id', $currentUser->id);
+                });
             });
         }
 
@@ -111,16 +119,22 @@ trait AuthorizeReportAccessTrait
             });
         }
 
-        // Manager ve datos donde sus cobradores están involucrados
+        // Manager ve datos donde sus cobradores están involucrados O donde él es el responsable directo
         if ($currentUser->hasRole('manager')) {
             return $query->where(function ($q) use ($currentUser, $relationships) {
                 foreach ($relationships as $relationship) {
-                    // Convertir snake_case a camelCase para relaciones si es necesario
-                    // ej: 'created_by' -> 'createdBy', o 'createdBy' -> 'createdBy' (sin cambio)
-                    $relationshipName = $this->snakeCaseToCamelCase($relationship);
+                    $q->orWhere(function ($subQ) use ($currentUser, $relationship) {
+                        // Convertir camelCase a snake_case para columnas
+                        $columnName = $this->camelCaseToSnakeCase($relationship);
 
-                    $q->orWhereHas($relationshipName, function ($subQ) use ($currentUser) {
-                        $subQ->where('assigned_manager_id', $currentUser->id);
+                        // 1. Manager es directamente responsable (created_by o delivered_by = manager)
+                        $subQ->where($columnName, $currentUser->id);
+
+                        // 2. O es un cobrador asignado al manager
+                        $relationshipName = $this->snakeCaseToCamelCase($relationship);
+                        $subQ->orWhereHas($relationshipName, function ($userQ) use ($currentUser) {
+                            $userQ->where('assigned_manager_id', $currentUser->id);
+                        });
                     });
                 }
             });

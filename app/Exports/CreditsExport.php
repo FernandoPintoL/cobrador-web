@@ -8,6 +8,7 @@ use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\WithStyles;
+use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Events\AfterSheet;
 use Maatwebsite\Excel\Concerns\RegistersEventListeners;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
@@ -15,7 +16,7 @@ use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
-class CreditsExport implements FromCollection, ShouldAutoSize, WithHeadings, WithMapping, WithStyles
+class CreditsExport implements FromCollection, ShouldAutoSize, WithHeadings, WithMapping, WithStyles, WithEvents
 {
     use RegistersEventListeners;
 
@@ -221,8 +222,8 @@ class CreditsExport implements FromCollection, ShouldAutoSize, WithHeadings, Wit
                     $paymentStatus = $creditArray['payment_status'] ?? 'danger';
                     $backgroundColor = $colorMap[$paymentStatus] ?? 'FFFFFF';
 
-                    // Aplicar el color de fondo a toda la fila
-                    $sheet->getStyle('A'.$row.':I'.$row)->applyFromArray([
+                    // Aplicar el color de fondo a toda la fila (17 columnas: A-Q)
+                    $sheet->getStyle('A'.$row.':Q'.$row)->applyFromArray([
                         'fill' => [
                             'fillType' => Fill::FILL_SOLID,
                             'startColor' => ['rgb' => $backgroundColor],

@@ -34,15 +34,23 @@ class CreditReportService
     {
         // 1. Obtener créditos con filtros
         $query = $this->buildQuery($filters, $currentUser);
-        $credits = $query->orderBy('created_at', 'desc')->get();
 
-        // 2. Transformar créditos
+        // 2. Ordenar por cobrador (createdBy) y luego por fecha
+        // Esto agrupa visualmente los créditos del mismo cobrador
+        $credits = $query
+            ->join('users as creator', 'credits.created_by', '=', 'creator.id')
+            ->orderBy('creator.name', 'asc')  // Agrupar por nombre del cobrador
+            ->orderBy('credits.created_at', 'desc')  // Dentro de cada grupo, ordenar por fecha
+            ->select('credits.*')  // Seleccionar solo columnas de credits para evitar conflictos
+            ->get();
+
+        // 3. Transformar créditos
         $transformedCredits = $this->transformCredits($credits);
 
-        // 3. Calcular resumen
+        // 4. Calcular resumen
         $summary = $this->calculateSummary($credits);
 
-        // 4. Retornar DTO
+        // 5. Retornar DTO
         return new CreditReportDTO(
             credits: $transformedCredits,
             summary: $summary,
