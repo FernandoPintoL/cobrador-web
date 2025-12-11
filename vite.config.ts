@@ -1,3 +1,4 @@
+// @ts-ignore
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import laravel from 'laravel-vite-plugin';
@@ -22,8 +23,8 @@ export default defineConfig({
             'ziggy-js': resolve(__dirname, 'vendor/tightenco/ziggy'),
         },
     },
-    server: {
+    /*server: {
         host: '192.168.1.35',
         port: 5437,
-    },
+    },*/
 });

@@ -28,7 +28,7 @@
         --color-status-danger: #ffcccc;
 
         /* Tipografía */
-        --font-family-base: Arial, sans-serif;
+        --font-family-base: 'DejaVu Sans', Arial, sans-serif;
         --font-size-base: 10px;
         --font-size-header: 18px;
         --font-size-subheader: 11px;

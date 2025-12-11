@@ -58,6 +58,7 @@ class Credit extends Model
         'approved_by',
         'approved_at',
         'delivered_at',
+        'completed_at',
         'delivered_by',
         'delivery_notes',
         'rejection_reason',
@@ -79,6 +80,7 @@ class Credit extends Model
         'first_payment_today'          => 'boolean',
         'approved_at'                  => 'datetime',
         'delivered_at'                 => 'datetime',
+        'completed_at'                 => 'datetime',
         'amount'                       => 'decimal:2',
         'total_paid'                   => 'decimal:2',
         'interest_rate'                => 'decimal:2',
@@ -89,6 +91,18 @@ class Credit extends Model
         'paid_installments'            => 'integer',
         'latitude'                     => 'decimal:8',
         'longitude'                    => 'decimal:8',
+    ];
+
+    /**
+     * Atributos calculados que se incluyen automáticamente en JSON
+     * Estos campos se calculan dinámicamente usando los métodos get{Attribute}Attribute()
+     */
+    protected $appends = [
+        'days_overdue',           // Días de retraso calculados
+        'overdue_severity',       // Severidad: 'none', 'light', 'moderate', 'critical'
+        'payment_status',         // Estado: 'completed', 'on_track', 'at_risk', 'critical'
+        'overdue_installments',   // Cantidad de cuotas atrasadas
+        'requires_attention',     // Flag booleano de alerta
     ];
 
     /**
@@ -358,6 +372,101 @@ class Credit extends Model
         $overdueInstallments  = $expectedInstallments - $completedInstallments;
 
         return $overdueInstallments * $this->installment_amount;
+    }
+
+    // ========================================
+    // NUEVOS MÉTODOS PARA ESTANDARIZACIÓN UI
+    // ========================================
+
+    /**
+     * Calcula los días de retraso del crédito
+     * Retorna 0 si no está vencido o si ya está completado
+     */
+    public function getDaysOverdueAttribute(): int
+    {
+        if ($this->status === 'completed' || ! $this->isOverdue()) {
+            return 0;
+        }
+
+        $expectedInstallments = $this->getExpectedInstallments();
+        $completedInstallments = $this->getCompletedInstallmentsCount();
+        $overdueInstallments = $expectedInstallments - $completedInstallments;
+
+        // Calcular días basado en la frecuencia de pago
+        $daysPerInstallment = match ($this->frequency) {
+            'daily' => 1,
+            'weekly' => 7,
+            'biweekly' => 14,
+            'monthly' => 30,
+            default => 1,
+        };
+
+        return $overdueInstallments * $daysPerInstallment;
+    }
+
+    /**
+     * Determina la severidad del retraso basado en días
+     * Retorna: 'none', 'light', 'moderate', 'critical'
+     */
+    public function getOverdueSeverityAttribute(): string
+    {
+        $days = $this->days_overdue;
+
+        if ($days === 0) {
+            return 'none';
+        }
+        if ($days <= 3) {
+            return 'light';
+        }
+        if ($days <= 7) {
+            return 'moderate';
+        }
+
+        return 'critical';
+    }
+
+    /**
+     * Estado del pago basado en cuotas pendientes
+     * Retorna: 'completed', 'on_track', 'at_risk', 'critical'
+     */
+    public function getPaymentStatusAttribute(): string
+    {
+        $total = $this->total_installments ?? $this->calculateTotalInstallments();
+        $completed = $this->getCompletedInstallmentsCount();
+        $pending = max($total - $completed, 0);
+
+        if ($pending === 0) {
+            return 'completed';
+        }
+        if ($pending <= 3) {
+            return 'at_risk';
+        }
+
+        return 'critical';
+    }
+
+    /**
+     * Cantidad de cuotas atrasadas (esperadas pero no pagadas)
+     */
+    public function getOverdueInstallmentsAttribute(): int
+    {
+        if (! $this->isOverdue()) {
+            return 0;
+        }
+
+        $expectedInstallments = $this->getExpectedInstallments();
+        $completedInstallments = $this->getCompletedInstallmentsCount();
+
+        return max($expectedInstallments - $completedInstallments, 0);
+    }
+
+    /**
+     * Flag booleano si requiere atención inmediata
+     */
+    public function getRequiresAttentionAttribute(): bool
+    {
+        return in_array($this->overdue_severity, ['moderate', 'critical'])
+            || in_array($this->payment_status, ['critical']);
     }
 
     /**
@@ -995,9 +1104,11 @@ class Credit extends Model
         // Actualizar estado si es necesario
         if ($this->balance <= 0 && $this->status !== 'completed') {
             $this->status = 'completed';
+            $this->completed_at = now(); // ⭐ Registrar fecha de completado
             $hasChanges = true;
         } elseif ($this->balance > 0 && $this->status === 'completed') {
             $this->status = 'active';
+            $this->completed_at = null; // ⭐ Limpiar fecha si se revierte
             $hasChanges = true;
         }
 
@@ -1009,6 +1120,7 @@ class Credit extends Model
                 'balance' => $calculatedBalance,
                 'paid_installments' => $calculatedPaidInstallments,
                 'status' => $this->status,
+                'completed_at' => $this->completed_at?->toDateTimeString(),
             ]);
         }
 

@@ -27,9 +27,11 @@ class PaymentController extends BaseController
         if ($currentUser && $currentUser->hasRole('cobrador')) {
             $query->where('received_by', $currentUser->id);
         } elseif ($currentUser && $currentUser->hasRole('manager')) {
-            // Si es manager, mostrar pagos de sus cobradores
-            $cobradorIds = User::role('cobrador')->where('assigned_manager_id', $currentUser->id)->pluck('id');
-            $query->whereIn('received_by', $cobradorIds);
+            // Si es manager, mostrar pagos de sus cobradores (optimizado con subconsulta)
+            $query->whereHas('receivedBy', function ($receivedByQuery) use ($currentUser) {
+                $receivedByQuery->role('cobrador')
+                    ->where('assigned_manager_id', $currentUser->id);
+            });
         }
 
         // Filtros adicionales

@@ -155,6 +155,18 @@ class CreditReportService
                 'payment_status_icon' => $paymentStatus['icon'],
                 'payment_status_color' => $paymentStatus['color'],
                 'payment_status_label' => $paymentStatus['label'],
+
+                // ⭐ Campos estandarizados del sistema de severidad
+                'days_overdue' => $credit->days_overdue,
+                'overdue_severity' => $credit->overdue_severity,
+                'requires_attention' => $credit->requires_attention,
+
+                // ⭐ Campos de fechas importantes
+                'delivered_at' => $credit->delivered_at?->format('Y-m-d H:i:s'),
+                'delivered_at_formatted' => $credit->delivered_at?->format('d/m/Y'),
+                'completed_at' => $credit->completed_at?->format('Y-m-d H:i:s'),
+                'completed_at_formatted' => $credit->completed_at?->format('d/m/Y'),
+
                 '_model' => $credit,
             ];
         });

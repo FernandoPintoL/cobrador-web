@@ -36,16 +36,33 @@
         <tbody>
             @forelse($balances as $balance)
             @php
-            $difference = $balance->final_amount - ($balance->initial_amount + $balance->collected_amount - $balance->lent_amount);
+            // Convertir a array si es objeto
+            $balanceArray = is_array($balance) ? $balance : (array)$balance;
+
+            // Obtener el modelo si existe
+            $model = $balanceArray['_model'] ?? null;
+
+            // Extraer valores
+            $initialAmount = (float)($balanceArray['initial_amount'] ?? 0);
+            $collectedAmount = (float)($balanceArray['collected_amount'] ?? 0);
+            $lentAmount = (float)($balanceArray['lent_amount'] ?? 0);
+            $finalAmount = (float)($balanceArray['final_amount'] ?? 0);
+            $difference = $finalAmount - ($initialAmount + $collectedAmount - $lentAmount);
+
+            // Obtener nombre del cobrador
+            $cobradorName = $balanceArray['cobrador_name'] ?? ($model && $model->cobrador ? $model->cobrador->name : 'N/A');
+
+            // Obtener fecha formateada
+            $dateFormatted = $balanceArray['date_formatted'] ?? ($model && $model->date ? $model->date->format('d/m/Y') : 'N/A');
             @endphp
             <tr>
-                <td>{{ $balance->id }}</td>
-                <td>{{ $balance->cobrador->name ?? 'N/A' }}</td>
-                <td>{{ $balance->date->format('d/m/Y') }}</td>
-                <td>$ {{ number_format($balance->initial_amount, 2) }}</td>
-                <td>$ {{ number_format($balance->collected_amount, 2) }}</td>
-                <td>$ {{ number_format($balance->lent_amount, 2) }}</td>
-                <td>$ {{ number_format($balance->final_amount, 2) }}</td>
+                <td>{{ $balanceArray['id'] ?? 'N/A' }}</td>
+                <td>{{ $cobradorName }}</td>
+                <td>{{ $dateFormatted }}</td>
+                <td>$ {{ number_format($initialAmount, 2) }}</td>
+                <td>$ {{ number_format($collectedAmount, 2) }}</td>
+                <td>$ {{ number_format($lentAmount, 2) }}</td>
+                <td>$ {{ number_format($finalAmount, 2) }}</td>
                 <td style="color: {{ $difference > 0 ? 'var(--color-success)' : ($difference < 0 ? 'var(--color-danger)' : 'var(--color-text)') }};">
                     $ {{ number_format($difference, 2) }}
                 </td>

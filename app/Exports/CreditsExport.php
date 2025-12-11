@@ -2,6 +2,7 @@
 
 namespace App\Exports;
 
+use App\Services\CreditReportFormatterService;
 use Illuminate\Support\Collection;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
@@ -53,6 +54,8 @@ class CreditsExport implements FromCollection, ShouldAutoSize, WithHeadings, Wit
             'Esperadas',
             'Vencidas',
             'Estado Pago',
+            'Estado de Retraso',
+            'Días Retraso',
             'Frecuencia',
             'Vencimiento',
             'Creación',
@@ -77,6 +80,24 @@ class CreditsExport implements FromCollection, ShouldAutoSize, WithHeadings, Wit
         $frequency = $model ? $model->frequency : 'N/A';
         $endDate = $model && $model->end_date ? $model->end_date->format('d/m/Y') : 'N/A';
 
+        // Get severity data from backend or use formatter service if model is available
+        $overdueSeverity = $creditArray['overdue_severity'] ?? 'none';
+        $daysOverdue = $creditArray['days_overdue'] ?? 0;
+
+        // Generate formatted severity text with emoji
+        $severityEmoji = CreditReportFormatterService::getSeverityEmoji($overdueSeverity);
+        $severityLabel = CreditReportFormatterService::getSeverityLabel($overdueSeverity);
+        $severityText = $severityEmoji . ' ' . $severityLabel;
+
+        // Traducir frecuencia al español
+        $frequencyTranslations = [
+            'daily' => 'Diario',
+            'weekly' => 'Semanal',
+            'biweekly' => 'Quincenal',
+            'monthly' => 'Mensual',
+        ];
+        $frequencySpanish = $frequencyTranslations[$frequency] ?? ucfirst(str_replace('_', ' ', $frequency));
+
         return [
             $creditArray['id'] ?? 'N/A',
             $creditArray['client_name'] ?? 'N/A',
@@ -92,7 +113,9 @@ class CreditsExport implements FromCollection, ShouldAutoSize, WithHeadings, Wit
             $creditArray['expected_installments'] ?? 0,
             $creditArray['installments_overdue'] ?? 0,
             $creditArray['payment_status_label'] ?? 'N/A',
-            ucfirst(str_replace('_', ' ', $frequency)),
+            $severityText,  // ✅ Al día, ⚠️ Alerta leve, etc.
+            $daysOverdue,
+            $frequencySpanish,  // ⭐ Traducido al español
             $endDate,
             $creditArray['created_at_formatted'] ?? 'N/A',
         ];
@@ -115,12 +138,14 @@ class CreditsExport implements FromCollection, ShouldAutoSize, WithHeadings, Wit
         $sheet->getColumnDimension('L')->setWidth(12);  // Esperadas
         $sheet->getColumnDimension('M')->setWidth(10);  // Vencidas
         $sheet->getColumnDimension('N')->setWidth(20);  // Estado Pago
-        $sheet->getColumnDimension('O')->setWidth(14);  // Frecuencia
-        $sheet->getColumnDimension('P')->setWidth(14);  // Vencimiento
-        $sheet->getColumnDimension('Q')->setWidth(12);  // Creación
+        $sheet->getColumnDimension('O')->setWidth(18);  // Estado de Retraso (con emoji)
+        $sheet->getColumnDimension('P')->setWidth(12);  // Días Retraso
+        $sheet->getColumnDimension('Q')->setWidth(14);  // Frecuencia
+        $sheet->getColumnDimension('R')->setWidth(14);  // Vencimiento
+        $sheet->getColumnDimension('S')->setWidth(12);  // Creación
 
-        // Estilo para el encabezado (17 columnas)
-        $sheet->getStyle('A1:Q1')->applyFromArray([
+        // Estilo para el encabezado (19 columnas)
+        $sheet->getStyle('A1:S1')->applyFromArray([
             'font' => [
                 'bold' => true,
                 'color' => ['rgb' => 'FFFFFF'],
@@ -145,7 +170,7 @@ class CreditsExport implements FromCollection, ShouldAutoSize, WithHeadings, Wit
         $dataEndRow = $sheet->getHighestRow();
 
         if ($dataEndRow >= $dataStartRow) {
-            $sheet->getStyle('A'.$dataStartRow.':Q'.$dataEndRow)->applyFromArray([
+            $sheet->getStyle('A'.$dataStartRow.':S'.$dataEndRow)->applyFromArray([
                 'alignment' => [
                     'horizontal' => Alignment::HORIZONTAL_LEFT,
                     'vertical' => Alignment::VERTICAL_CENTER,
@@ -172,7 +197,7 @@ class CreditsExport implements FromCollection, ShouldAutoSize, WithHeadings, Wit
 
         // Estilo para las filas de resumen
         $summaryStartRow = $lastRow - 1;
-        $sheet->getStyle('A'.$summaryStartRow.':Q'.$lastRow)->applyFromArray([
+        $sheet->getStyle('A'.$summaryStartRow.':S'.$lastRow)->applyFromArray([
             'font' => [
                 'bold' => true,
                 'color' => ['rgb' => '000000'],
@@ -188,11 +213,12 @@ class CreditsExport implements FromCollection, ShouldAutoSize, WithHeadings, Wit
 
     /**
      * Aplica colores condicionales a las filas basado en el estado de pago
-     * - Verde (#e8f5e9): Completado
-     * - Azul (#e3f2fd): Al día
-     * - Púrpura (#f3e5f5): Adelantado
-     * - Amarillo (#fffacd): Retraso bajo (1-3 cuotas)
-     * - Rojo (#ffcccc): Retraso alto (>3 cuotas)
+     * Utiliza el sistema de payment_status:
+     * - completed: Verde claro (#e8f5e9) - Completado
+     * - current: Azul claro (#e3f2fd) - Al día
+     * - ahead: Morado claro (#f3e5f5) - Adelantado
+     * - warning: Amarillo claro (#fffacd) - Retraso leve
+     * - danger: Rojo claro (#ffcccc) - Retraso alto
      */
     public function registerEvents(): array
     {
@@ -202,15 +228,6 @@ class CreditsExport implements FromCollection, ShouldAutoSize, WithHeadings, Wit
             AfterSheet::class => function(AfterSheet $event) use ($data) {
                 $sheet = $event->sheet->getDelegate();
 
-                // Mapa de colores basado en payment_status
-                $colorMap = [
-                    'completed' => 'E8F5E9', // Verde suave
-                    'current' => 'E3F2FD',   // Azul suave
-                    'ahead' => 'F3E5F5',     // Púrpura suave
-                    'warning' => 'FFFACD',   // Amarillo
-                    'danger' => 'FFCCCC',    // Rojo
-                ];
-
                 // Comenzar desde la fila 2 (después del encabezado)
                 $creditIndex = 0;
                 foreach ($data as $credit) {
@@ -218,15 +235,59 @@ class CreditsExport implements FromCollection, ShouldAutoSize, WithHeadings, Wit
 
                     $creditArray = is_array($credit) ? $credit : (array) $credit;
 
-                    // Obtener el estado de pago calculado por el servicio
+                    // Obtener el estado de pago desde el backend
                     $paymentStatus = $creditArray['payment_status'] ?? 'danger';
-                    $backgroundColor = $colorMap[$paymentStatus] ?? 'FFFFFF';
 
-                    // Aplicar el color de fondo a toda la fila (17 columnas: A-Q)
-                    $sheet->getStyle('A'.$row.':Q'.$row)->applyFromArray([
+                    // Mapear estados de pago a colores
+                    $colorMap = [
+                        'completed' => ['bg' => 'e8f5e9', 'text' => '1b5e20'], // Verde claro
+                        'current'   => ['bg' => 'e3f2fd', 'text' => '0d47a1'], // Azul claro
+                        'ahead'     => ['bg' => 'f3e5f5', 'text' => '4a148c'], // Morado claro
+                        'warning'   => ['bg' => 'fffacd', 'text' => '827717'], // Amarillo claro
+                        'danger'    => ['bg' => 'ffcccc', 'text' => 'b71c1c'], // Rojo claro
+                    ];
+
+                    // Obtener colores, usar 'danger' como default
+                    $colors = $colorMap[$paymentStatus] ?? $colorMap['danger'];
+                    $bgColor = $colors['bg'];
+                    $textColor = $colors['text'];
+
+                    // Aplicar el color de fondo a toda la fila (19 columnas: A-S)
+                    $sheet->getStyle('A'.$row.':S'.$row)->applyFromArray([
                         'fill' => [
                             'fillType' => Fill::FILL_SOLID,
-                            'startColor' => ['rgb' => $backgroundColor],
+                            'startColor' => ['rgb' => $bgColor],
+                        ],
+                    ]);
+
+                    // Aplicar estilo especial a la columna "Estado Pago" (columna N)
+                    $sheet->getStyle('N'.$row)->applyFromArray([
+                        'font' => [
+                            'bold' => true,
+                            'color' => ['rgb' => $textColor],
+                        ],
+                        'alignment' => [
+                            'horizontal' => Alignment::HORIZONTAL_CENTER,
+                        ],
+                    ]);
+
+                    // También aplicar estilo a la columna "Estado de Retraso" (columna O)
+                    $overdueSeverity = $creditArray['overdue_severity'] ?? 'none';
+                    $severityColorMap = [
+                        'none'     => '1b5e20', // Verde oscuro
+                        'light'    => 'f57c00', // Naranja
+                        'moderate' => 'e65100', // Naranja oscuro
+                        'critical' => 'b71c1c', // Rojo oscuro
+                    ];
+                    $severityTextColor = $severityColorMap[$overdueSeverity] ?? '000000';
+
+                    $sheet->getStyle('O'.$row)->applyFromArray([
+                        'font' => [
+                            'bold' => true,
+                            'color' => ['rgb' => $severityTextColor],
+                        ],
+                        'alignment' => [
+                            'horizontal' => Alignment::HORIZONTAL_CENTER,
                         ],
                     ]);
 

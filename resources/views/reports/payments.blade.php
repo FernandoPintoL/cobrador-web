@@ -33,21 +33,39 @@
         ];
 
         $payments_custom = $payments->map(function($payment) {
-            // ✅ OPTIMIZACIÓN: Usando métodos cacheados para mejor performance en reportes
-            $remainingForInstallment = $payment->getRemainingForInstallment();
+            // Convertir a array si es objeto
+            $paymentArray = is_array($payment) ? $payment : (array)$payment;
+
+            // Obtener el modelo si existe (para llamadas a métodos)
+            $model = $paymentArray['_model'] ?? null;
+
+            // Si tenemos el modelo, calcular valores adicionales
+            $remainingForInstallment = null;
+            $pendingInstallments = 'N/A';
+            $creditBalance = 'N/A';
+
+            if ($model) {
+                try {
+                    $remainingForInstallment = $model->getRemainingForInstallment();
+                    $pendingInstallments = $model->credit ? $model->credit->getPendingInstallments() : 'N/A';
+                    $creditBalance = $model->credit ? 'Bs ' . number_format($model->credit->balance, 2) : 'N/A';
+                } catch (\Exception $e) {
+                    // Si hay error, usar valores por defecto
+                }
+            }
 
             return (object) array_merge(
-                $payment->toArray(),
+                $paymentArray,
                 [
-                    'cobrador_name' => $payment->cobrador->name ?? 'N/A',
-                    'client_name' => $payment->credit->client->name ?? 'N/A',
-                    'payment_date_formatted' => $payment->payment_date->format('d/m/Y'),
-                    'installment_num' => $payment->installment_number > 0 ? $payment->installment_number : 'N/A',
-                    'pending_installments' => $payment->credit ? $payment->credit->getPendingInstallments() : 'N/A',
+                    'cobrador_name' => $paymentArray['cobrador_name'] ?? 'N/A',
+                    'client_name' => $paymentArray['client_name'] ?? 'N/A',
+                    'payment_date_formatted' => $paymentArray['payment_date_formatted'] ?? 'N/A',
+                    'installment_num' => ($paymentArray['installment_number'] ?? 0) > 0 ? $paymentArray['installment_number'] : 'N/A',
+                    'pending_installments' => $pendingInstallments,
                     'remaining_for_installment_formatted' => !is_null($remainingForInstallment)
                         ? 'Bs ' . number_format($remainingForInstallment, 2)
                         : 'N/A',
-                    'credit_balance' => $payment->credit ? 'Bs ' . number_format($payment->credit->balance, 2) : 'N/A',
+                    'credit_balance' => $creditBalance,
                 ]
             );
         });

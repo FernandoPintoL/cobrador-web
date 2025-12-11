@@ -32,32 +32,23 @@ class CreditController extends BaseController
                         });
                 });
             } elseif ($currentUser->hasRole('manager')) {
-                // Clientes directos del manager
-                $directClientIds = User::whereHas('roles', function ($q) {
-                    $q->where('name', 'client');
-                })
-                    ->where('assigned_manager_id', $currentUser->id)
-                    ->pluck('id')->toArray();
-
-                // Cobradores bajo el manager
-                $cobradorIds = User::role('cobrador')
-                    ->where('assigned_manager_id', $currentUser->id)
-                    ->pluck('id')->toArray();
-
-                // Clientes de esos cobradores
-                $cobradorClientIds = User::whereHas('roles', function ($q) {
-                    $q->where('name', 'client');
-                })
-                    ->whereIn('assigned_cobrador_id', $cobradorIds)
-                    ->pluck('id')->toArray();
-
-                $allClientIds = array_unique(array_merge($directClientIds, $cobradorClientIds));
-
-                // Créditos creados por el manager, por sus cobradores, O de sus clientes (directos o vía cobradores)
-                $query->where(function ($q) use ($currentUser, $allClientIds, $cobradorIds) {
+                // Optimización: Una sola query usando subconsultas y relaciones Eloquent
+                $query->where(function ($q) use ($currentUser) {
+                    // Créditos creados por el manager
                     $q->where('created_by', $currentUser->id)
-                        ->orWhereIn('created_by', $cobradorIds)
-                        ->orWhereIn('client_id', $allClientIds);
+                        // Créditos creados por cobradores del manager
+                        ->orWhereHas('createdBy', function ($createdByQuery) use ($currentUser) {
+                            $createdByQuery->role('cobrador')
+                                ->where('assigned_manager_id', $currentUser->id);
+                        })
+                        // Créditos de clientes directos del manager
+                        ->orWhereHas('client', function ($clientQuery) use ($currentUser) {
+                            $clientQuery->where('assigned_manager_id', $currentUser->id);
+                        })
+                        // Créditos de clientes de cobradores del manager
+                        ->orWhereHas('client.assignedCobrador', function ($cobradorQuery) use ($currentUser) {
+                            $cobradorQuery->where('assigned_manager_id', $currentUser->id);
+                        });
                 });
             }
         }
@@ -775,30 +766,27 @@ class CreditController extends BaseController
         if (! $manager->hasRole('manager')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
         }
-        // Obtener IDs de clientes directos
-        $directClientIds = User::whereHas('roles', function ($q) {
-            $q->where('name', 'client');
-        })
-            ->where('assigned_manager_id', $manager->id)
-            ->pluck('id')->toArray();
-        // Cobradores asignados al manager
-        $cobradorIds = User::role('cobrador')->where('assigned_manager_id', $manager->id)->pluck('id')->toArray();
-        // Clientes de los cobradores
-        $cobradorClientIds = User::whereHas('roles', function ($q) {
-            $q->where('name', 'client');
-        })
-            ->whereIn('assigned_cobrador_id', $cobradorIds)
-            ->pluck('id')->toArray();
-        // Unir todos los clientes
-        $allClientIds = array_unique(array_merge($directClientIds, $cobradorClientIds));
-        // Estadísticas
+
+        // Optimización: Construir query base con subconsultas en lugar de cargar arrays de IDs
+        $baseQuery = Credit::query()->where(function ($q) use ($manager) {
+            // Créditos de clientes directos del manager
+            $q->whereHas('client', function ($clientQuery) use ($manager) {
+                $clientQuery->where('assigned_manager_id', $manager->id);
+            })
+            // Créditos de clientes de cobradores del manager
+            ->orWhereHas('client.assignedCobrador', function ($cobradorQuery) use ($manager) {
+                $cobradorQuery->where('assigned_manager_id', $manager->id);
+            });
+        });
+
+        // Estadísticas usando la query base optimizada
         $stats = [
-            'total_credits'     => Credit::whereIn('client_id', $allClientIds)->count(),
-            'active_credits'    => Credit::whereIn('client_id', $allClientIds)->where('status', 'active')->count(),
-            'completed_credits' => Credit::whereIn('client_id', $allClientIds)->where('status', 'completed')->count(),
-            'defaulted_credits' => Credit::whereIn('client_id', $allClientIds)->where('status', 'defaulted')->count(),
-            'total_amount'      => Credit::whereIn('client_id', $allClientIds)->sum('amount'),
-            'total_balance'     => Credit::whereIn('client_id', $allClientIds)->sum('balance'),
+            'total_credits'     => (clone $baseQuery)->count(),
+            'active_credits'    => (clone $baseQuery)->where('status', 'active')->count(),
+            'completed_credits' => (clone $baseQuery)->where('status', 'completed')->count(),
+            'defaulted_credits' => (clone $baseQuery)->where('status', 'defaulted')->count(),
+            'total_amount'      => (clone $baseQuery)->sum('amount'),
+            'total_balance'     => (clone $baseQuery)->sum('balance'),
         ];
 
         return $this->sendResponse($stats, "Estadísticas de créditos del manager {$manager->name} obtenidas exitosamente");
