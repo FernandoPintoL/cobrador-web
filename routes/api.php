@@ -35,11 +35,12 @@ Route::post('/check-exists', [AuthController::class, 'checkExists'])->name('api.
 // Ruta temporal para testing (sin autenticación)
 // Route::get('/users-test', [UserController::class, 'index'])->name('api.users.test');
 
-// Rutas protegidas
-Route::middleware('auth:sanctum')->group(function () {
+// Rutas protegidas (requiere autenticación y tenant activo)
+Route::middleware(['auth:sanctum', 'tenant_active'])->group(function () {
     // Autenticación
     Route::post('/logout', [AuthController::class, 'logout'])->name('api.logout');
     Route::get('/me', [AuthController::class, 'me'])->name('api.me');
+    Route::get('/tenant/status', [AuthController::class, 'tenantStatus'])->name('api.tenant.status');
 
     // Usuarios
     Route::apiResource('users', UserController::class)->names([
@@ -107,6 +108,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/interest-rates/active', [InterestRateController::class, 'active'])->name('api.interest-rates.active');
 
     // Créditos - Rutas específicas PRIMERO (antes del resource)
+    Route::get('/credits/form-config', [CreditController::class, 'formConfig'])->name('api.credits.form-config');
     Route::get('/credits/frequencies/available', [CreditController::class, 'getAvailableFrequencies'])->name('api.credits.frequencies');
     Route::get('/credits/{credit}/remaining-installments', [CreditController::class, 'getRemainingInstallments'])->name('api.credits.remaining-installments');
     Route::get('/credits/{credit}/payment-schedule', [CreditController::class, 'getPaymentSchedule'])->name('api.credits.payment-schedule');
@@ -120,6 +122,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('credits', CreditController::class)->names([
         'index'   => 'api.credits.index',
         'store'   => 'api.credits.store',
+        'show'    => 'api.credits.show',
         'update'  => 'api.credits.update',
         'destroy' => 'api.credits.destroy',
     ]);
@@ -236,4 +239,78 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/commissions', [ReportController::class, 'commissionsReport'])->name('api.reports.commissions');
 
     // WebSocket Notifications eliminadas
+});
+
+// ============================================================================
+// Rutas de Super Admin para Multi-Tenancy
+// ============================================================================
+Route::middleware(['auth:web', 'super_admin'])->prefix('super-admin')->group(function () {
+    // Gestión de Tenants (Empresas)
+    Route::apiResource('tenants', App\Http\Controllers\Api\TenantController::class)->names([
+        'index'   => 'api.super-admin.tenants.index',
+        'store'   => 'api.super-admin.tenants.store',
+        'show'    => 'api.super-admin.tenants.show',
+        'update'  => 'api.super-admin.tenants.update',
+        'destroy' => 'api.super-admin.tenants.destroy',
+    ]);
+    Route::post('/tenants/{tenant}/activate', [App\Http\Controllers\Api\TenantController::class, 'activate'])
+        ->name('api.super-admin.tenants.activate');
+    Route::get('/tenants/{tenant}/statistics', [App\Http\Controllers\Api\TenantController::class, 'statistics'])
+        ->name('api.super-admin.tenants.statistics');
+
+    // Gestión de Suscripciones/Facturas
+    Route::get('/subscriptions', [App\Http\Controllers\Api\TenantSubscriptionController::class, 'index'])
+        ->name('api.super-admin.subscriptions.index');
+    Route::post('/subscriptions', [App\Http\Controllers\Api\TenantSubscriptionController::class, 'store'])
+        ->name('api.super-admin.subscriptions.store');
+    Route::get('/subscriptions/{subscription}', [App\Http\Controllers\Api\TenantSubscriptionController::class, 'show'])
+        ->name('api.super-admin.subscriptions.show');
+    Route::put('/subscriptions/{subscription}', [App\Http\Controllers\Api\TenantSubscriptionController::class, 'update'])
+        ->name('api.super-admin.subscriptions.update');
+    Route::delete('/subscriptions/{subscription}', [App\Http\Controllers\Api\TenantSubscriptionController::class, 'destroy'])
+        ->name('api.super-admin.subscriptions.destroy');
+    Route::post('/subscriptions/{subscription}/mark-paid', [App\Http\Controllers\Api\TenantSubscriptionController::class, 'markAsPaid'])
+        ->name('api.super-admin.subscriptions.mark-paid');
+    Route::post('/subscriptions/{subscription}/cancel', [App\Http\Controllers\Api\TenantSubscriptionController::class, 'cancel'])
+        ->name('api.super-admin.subscriptions.cancel');
+    Route::get('/subscriptions/statistics/overview', [App\Http\Controllers\Api\TenantSubscriptionController::class, 'statistics'])
+        ->name('api.super-admin.subscriptions.statistics');
+
+    // Suscripciones por Tenant
+    Route::get('/tenants/{tenant}/subscriptions', [App\Http\Controllers\Api\TenantSubscriptionController::class, 'indexByTenant'])
+        ->name('api.super-admin.tenants.subscriptions');
+
+    // Configuraciones de Tenants
+    Route::get('/tenants/{tenant}/settings', [App\Http\Controllers\Api\TenantSettingController::class, 'index'])
+        ->name('api.super-admin.tenants.settings.index');
+    Route::get('/tenants/{tenant}/settings/{key}', [App\Http\Controllers\Api\TenantSettingController::class, 'show'])
+        ->name('api.super-admin.tenants.settings.show');
+    Route::post('/tenants/{tenant}/settings', [App\Http\Controllers\Api\TenantSettingController::class, 'store'])
+        ->name('api.super-admin.tenants.settings.store');
+    Route::post('/tenants/{tenant}/settings/bulk', [App\Http\Controllers\Api\TenantSettingController::class, 'bulkUpdate'])
+        ->name('api.super-admin.tenants.settings.bulk');
+    Route::delete('/tenants/{tenant}/settings/{key}', [App\Http\Controllers\Api\TenantSettingController::class, 'destroy'])
+        ->name('api.super-admin.tenants.settings.destroy');
+    Route::get('/settings/available', [App\Http\Controllers\Api\TenantSettingController::class, 'availableSettings'])
+        ->name('api.super-admin.settings.available');
+
+    // Dashboard de Facturación
+    Route::get('/billing/overview', [App\Http\Controllers\Api\BillingDashboardController::class, 'overview'])
+        ->name('api.super-admin.billing.overview');
+    Route::get('/billing/monthly-revenue', [App\Http\Controllers\Api\BillingDashboardController::class, 'monthlyRevenue'])
+        ->name('api.super-admin.billing.monthly-revenue');
+    Route::get('/billing/tenant-growth', [App\Http\Controllers\Api\BillingDashboardController::class, 'tenantGrowth'])
+        ->name('api.super-admin.billing.tenant-growth');
+    Route::get('/billing/overdue-report', [App\Http\Controllers\Api\BillingDashboardController::class, 'overdueReport'])
+        ->name('api.super-admin.billing.overdue-report');
+    Route::get('/billing/trials-expiring', [App\Http\Controllers\Api\BillingDashboardController::class, 'trialsExpiring'])
+        ->name('api.super-admin.billing.trials-expiring');
+    Route::get('/billing/top-tenants', [App\Http\Controllers\Api\BillingDashboardController::class, 'topTenants'])
+        ->name('api.super-admin.billing.top-tenants');
+    Route::get('/billing/payment-compliance', [App\Http\Controllers\Api\BillingDashboardController::class, 'paymentCompliance'])
+        ->name('api.super-admin.billing.payment-compliance');
+    Route::get('/billing/churn-rate', [App\Http\Controllers\Api\BillingDashboardController::class, 'churnRate'])
+        ->name('api.super-admin.billing.churn-rate');
+    Route::get('/billing/export', [App\Http\Controllers\Api\BillingDashboardController::class, 'exportData'])
+        ->name('api.super-admin.billing.export');
 });

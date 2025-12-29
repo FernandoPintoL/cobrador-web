@@ -33,7 +33,14 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        $default = route(\Illuminate\Support\Facades\Route::has('dashboard') ? 'dashboard' : 'home', absolute: false);
+        // Redirigir según el rol del usuario
+        $user = Auth::user();
+
+        if ($user->hasRole('super_admin')) {
+            $default = route('super-admin.dashboard', absolute: false);
+        } else {
+            $default = route(\Illuminate\Support\Facades\Route::has('dashboard') ? 'dashboard' : 'home', absolute: false);
+        }
 
         return redirect()->intended($default);
     }

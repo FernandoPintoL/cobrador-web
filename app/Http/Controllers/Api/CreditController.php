@@ -165,6 +165,43 @@ class CreditController extends BaseController
         ]);
 
         $currentUser = Auth::user();
+        $tenant = $currentUser->tenant;
+
+        // Validar contra settings del tenant
+        if ($tenant) {
+            // Validar si puede editar el interés
+            if ($request->has('interest_rate_id')) {
+                $canEditInterest = $tenant->getSetting('allow_custom_interest_per_credit', false);
+                if (!$canEditInterest) {
+                    return $this->sendError(
+                        'Configuración no permitida',
+                        'No está permitido personalizar la tasa de interés para créditos en su empresa.',
+                        403
+                    );
+                }
+            }
+
+            // Validar si puede editar la frecuencia de pago
+            $canEditFrequency = $tenant->getSetting('allow_custom_payment_frequency', false);
+            $defaultFrequency = $tenant->getSetting('default_payment_frequency', 'mensual');
+
+            // Mapear frecuencias en español a inglés
+            $frequencyMap = [
+                'semanal' => 'weekly',
+                'quincenal' => 'biweekly',
+                'mensual' => 'monthly',
+                'diario' => 'daily',
+            ];
+            $expectedFrequency = $frequencyMap[$defaultFrequency] ?? 'monthly';
+
+            if (!$canEditFrequency && $request->frequency !== $expectedFrequency) {
+                return $this->sendError(
+                    'Configuración no permitida',
+                    "No está permitido cambiar la frecuencia de pago. La frecuencia debe ser: {$defaultFrequency}.",
+                    403
+                );
+            }
+        }
 
         // Verificar que el cliente exista y tenga rol de cliente
         $client = User::findOrFail($request->client_id);
@@ -1000,5 +1037,61 @@ class CreditController extends BaseController
                 'frequency' => $credit->frequency,
             ],
         ], 'Cronograma de pagos obtenido exitosamente');
+    }
+
+    /**
+     * Obtener configuración del formulario de créditos según settings del tenant.
+     */
+    public function formConfig()
+    {
+        $tenant = Auth::user()->tenant;
+
+        if (!$tenant) {
+            return $this->sendError('Usuario no pertenece a ningún tenant.', [], 403);
+        }
+
+        // Obtener settings relevantes para el formulario
+        $canEditInterest = $tenant->getSetting('allow_custom_interest_per_credit', false);
+        $defaultInterest = $tenant->getSetting('default_interest_rate', 10.0);
+        $canEditFrequency = $tenant->getSetting('allow_custom_payment_frequency', false);
+        $defaultFrequency = $tenant->getSetting('default_payment_frequency', 'mensual');
+
+        // Definir frecuencias disponibles
+        $availableFrequencies = [
+            [
+                'value' => 'daily',
+                'label' => 'Diario',
+                'description' => 'Pago todos los días'
+            ],
+            [
+                'value' => 'weekly',
+                'label' => 'Semanal',
+                'description' => 'Pago una vez por semana'
+            ],
+            [
+                'value' => 'biweekly',
+                'label' => 'Quincenal',
+                'description' => 'Pago cada dos semanas'
+            ],
+            [
+                'value' => 'monthly',
+                'label' => 'Mensual',
+                'description' => 'Pago una vez al mes'
+            ]
+        ];
+
+        $config = [
+            'interest' => [
+                'can_edit' => (bool) $canEditInterest,
+                'default' => (float) $defaultInterest,
+            ],
+            'payment_frequency' => [
+                'can_edit' => (bool) $canEditFrequency,
+                'default' => (string) $defaultFrequency,
+                'available_frequencies' => $availableFrequencies,
+            ],
+        ];
+
+        return $this->sendResponse($config, 'Configuración del formulario obtenida exitosamente.');
     }
 }

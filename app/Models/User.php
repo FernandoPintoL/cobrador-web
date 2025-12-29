@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+// use App\Traits\BelongsToTenant; // REMOVIDO: User no debe usar este trait para evitar loops infinitos
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -107,6 +108,7 @@ class User extends Authenticatable
      * @var list<string>
      */
     protected $fillable = [
+        'tenant_id', // ID de la empresa (multi-tenancy)
         'name',
         'email',
         'password',
@@ -522,5 +524,14 @@ class User extends Authenticatable
     public function photos(): HasMany
     {
         return $this->hasMany(UserPhoto::class);
+    }
+
+    /**
+     * Get the tenant that owns the user.
+     * NOTA: No usa BelongsToTenant trait para evitar loops infinitos durante auth.
+     */
+    public function tenant(): BelongsTo
+    {
+        return $this->belongsTo(Tenant::class);
     }
 }

@@ -1,6 +1,7 @@
 <?php
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -39,9 +40,10 @@ use Illuminate\Support\Facades\Log;
  */
 class Credit extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToTenant;
 
     protected $fillable = [
+        'tenant_id',
         'client_id',
         'created_by',
         'amount',

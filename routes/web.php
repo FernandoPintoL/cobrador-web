@@ -8,7 +8,11 @@ Route::get('/', function () {
 })->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    /*Route::get('dashboard', function () {
+    Route::get('dashboard', function () {
+        // Redirigir super-admins a su dashboard
+        if (auth()->user()->hasRole('super_admin')) {
+            return redirect()->route('super-admin.dashboard');
+        }
         return Inertia::render('dashboard');
     })->name('dashboard');
 
@@ -121,7 +125,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('notifications/{notification}/edit', function ($notification) {
         return Inertia::render('notifications/edit', ['notification' => $notification]);
-    })->name('notifications.edit');*/
+    })->name('notifications.edit');
 
     // Rutas de Reportes
     Route::get('reports', function () {
@@ -150,6 +154,31 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         return Inertia::render('reports/index', ['reportTypes' => $reportTypes]);
     })->name('reports.index');
+});
+
+// ============================================================================
+// Rutas de Super Admin para Multi-Tenancy
+// ============================================================================
+Route::middleware(['auth', 'super_admin'])->prefix('super-admin')->group(function () {
+    // Dashboard
+    Route::get('/dashboard', [App\Http\Controllers\SuperAdminController::class, 'dashboard'])
+        ->name('super-admin.dashboard');
+
+    // Tenants
+    Route::get('/tenants', [App\Http\Controllers\SuperAdminController::class, 'tenantsIndex'])
+        ->name('super-admin.tenants.index');
+    Route::get('/tenants/create', [App\Http\Controllers\SuperAdminController::class, 'tenantsCreate'])
+        ->name('super-admin.tenants.create');
+    Route::get('/tenants/{id}', [App\Http\Controllers\SuperAdminController::class, 'tenantsShow'])
+        ->name('super-admin.tenants.show');
+    Route::get('/tenants/{id}/edit', [App\Http\Controllers\SuperAdminController::class, 'tenantsEdit'])
+        ->name('super-admin.tenants.edit');
+    Route::get('/tenants/{id}/settings', [App\Http\Controllers\SuperAdminController::class, 'tenantsSettings'])
+        ->name('super-admin.tenants.settings');
+
+    // Subscriptions
+    Route::get('/subscriptions', [App\Http\Controllers\SuperAdminController::class, 'subscriptionsIndex'])
+        ->name('super-admin.subscriptions.index');
 });
 
 require __DIR__ . '/settings.php';

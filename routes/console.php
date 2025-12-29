@@ -491,3 +491,45 @@ Artisan::command('test:manager-clients-endpoint', function () {
 
     return 0;
 })->purpose('Verificar endpoint getAllClientsByManager');
+
+/*
+|--------------------------------------------------------------------------
+| Multi-Tenancy Billing Scheduler
+|--------------------------------------------------------------------------
+|
+| Comandos programados para el sistema de facturación multi-tenant
+|
+*/
+
+// Generar facturas mensuales el primer día de cada mes a las 00:05
+Schedule::command('tenants:generate-invoices')
+    ->monthlyOn(1, '00:05')
+    ->description('Generar facturas mensuales para todos los tenants activos')
+    ->onFailure(function () {
+        Log::error('Failed to generate monthly invoices');
+    })
+    ->onSuccess(function () {
+        Log::info('Monthly invoices generated successfully');
+    });
+
+// Verificar trials expirados diariamente a las 01:00
+Schedule::command('tenants:check-expired-trials')
+    ->dailyAt('01:00')
+    ->description('Verificar y suspender tenants con período de prueba expirado')
+    ->onFailure(function () {
+        Log::error('Failed to check expired trials');
+    })
+    ->onSuccess(function () {
+        Log::info('Expired trials checked successfully');
+    });
+
+// Verificar facturas vencidas diariamente a las 02:00
+Schedule::command('tenants:check-overdue-invoices --grace-days=7')
+    ->dailyAt('02:00')
+    ->description('Verificar facturas vencidas y suspender tenants con pagos atrasados')
+    ->onFailure(function () {
+        Log::error('Failed to check overdue invoices');
+    })
+    ->onSuccess(function () {
+        Log::info('Overdue invoices checked successfully');
+    });

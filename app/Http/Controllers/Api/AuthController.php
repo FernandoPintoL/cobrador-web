@@ -380,4 +380,42 @@ class AuthController extends BaseController
             'type'   => $isEmail ? 'email' : 'phone',
         ]);
     }
+
+    /**
+     * Get tenant status (used by Flutter to check if tenant is active).
+     */
+    public function tenantStatus(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return $this->sendError('No autenticado', 'Usuario no autenticado.', 401);
+        }
+
+        $tenant = $user->tenant;
+
+        if (!$tenant) {
+            // Usuario sin tenant (por ejemplo, super-admin)
+            return $this->sendResponse([
+                'has_tenant' => false,
+                'is_active' => true,
+                'status' => 'no_tenant',
+            ], 'Usuario no pertenece a ninguna empresa.');
+        }
+
+        $isActive = $tenant->status !== 'suspended';
+
+        return $this->sendResponse([
+            'has_tenant' => true,
+            'is_active' => $isActive,
+            'status' => $tenant->status,
+            'tenant' => [
+                'id' => $tenant->id,
+                'name' => $tenant->name,
+                'slug' => $tenant->slug,
+            ],
+        ], $isActive
+            ? 'Empresa activa.'
+            : 'Empresa suspendida. Contacta a soporte para más información.');
+    }
 }
