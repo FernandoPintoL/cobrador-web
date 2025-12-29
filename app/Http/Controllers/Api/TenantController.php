@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Models\Tenant;
+use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -85,6 +87,13 @@ class TenantController extends BaseController
             'monthly_price' => 'nullable|numeric|min:0',
             'trial_ends_at' => 'nullable|date|after:today',
             'settings' => 'nullable|array',
+
+            // Datos del admin que se creará automáticamente
+            'admin_name' => 'required|string|max:255',
+            'admin_email' => 'required|string|email|max:255|unique:users,email',
+            'admin_ci' => 'required|string|max:20|unique:users,ci',
+            'admin_password' => 'required|string|min:8',
+            'admin_phone' => 'nullable|string|max:20',
         ]);
 
         // Generar slug automáticamente si no se proporciona
@@ -131,12 +140,28 @@ class TenantController extends BaseController
             }
         }
 
+        // Crear el admin automáticamente para este tenant
+        $admin = User::create([
+            'name' => $validated['admin_name'],
+            'email' => $validated['admin_email'],
+            'ci' => $validated['admin_ci'],
+            'password' => Hash::make($validated['admin_password']),
+            'phone' => $validated['admin_phone'] ?? null,
+            'tenant_id' => $tenant->id,
+        ]);
+
+        // Asignar rol de admin
+        $admin->assignRole('admin');
+
         // Recargar con relaciones
-        $tenant->load(['settings']);
+        $tenant->load(['settings', 'users']);
 
         return $this->sendResponse(
-            $tenant,
-            'Tenant creado exitosamente.',
+            [
+                'tenant' => $tenant,
+                'admin' => $admin->load('roles'),
+            ],
+            'Tenant y admin creados exitosamente.',
             201
         );
     }

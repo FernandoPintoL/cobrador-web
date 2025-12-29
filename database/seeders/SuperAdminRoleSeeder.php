@@ -63,25 +63,41 @@ class SuperAdminRoleSeeder extends Seeder
         $this->command->info("  ✓ Rol 'super_admin' creado con {$superAdmin->permissions->count()} permisos");
         $this->command->newLine();
 
-        // Crear un usuario super_admin de ejemplo (opcional)
-        $this->command->info('👤 ¿Quieres crear un usuario Super Admin de ejemplo?');
+        // Crear o actualizar usuario super_admin
+        $this->command->info('👤 Creando o actualizando usuario Super Admin...');
 
-        if ($this->command->confirm('Crear usuario super_admin@example.com', true)) {
-            $user = \App\Models\User::firstOrCreate(
-                ['email' => 'super_admin@example.com'],
-                [
-                    'name' => 'SUPER ADMINISTRADOR',
-                    'password' => bcrypt('password'),
-                    'ci' => 'ADMIN-001',
-                    'tenant_id' => 1, // Asignar a Empresa Inicial
-                ]
-            );
+        // Buscar por email o CI
+        $user = \App\Models\User::where('email', 'super_admin@cobrador.com')
+            ->orWhere('ci', 'ADMIN-001')
+            ->first();
 
-            $user->assignRole('super_admin');
-
-            $this->command->info('  ✓ Usuario super_admin@example.com creado');
-            $this->command->warn('  ⚠️  Password: password (cámbialo en producción)');
+        if ($user) {
+            // Actualizar usuario existente
+            $user->update([
+                'name' => 'SUPER ADMINISTRADOR',
+                'email' => 'super_admin@cobrador.com',
+                'password' => bcrypt('password'),
+                'ci' => 'ADMIN-001',
+                'tenant_id' => 1,
+            ]);
+        } else {
+            // Crear nuevo usuario
+            $user = \App\Models\User::create([
+                'name' => 'SUPER ADMINISTRADOR',
+                'email' => 'super_admin@cobrador.com',
+                'password' => bcrypt('password'),
+                'ci' => 'ADMIN-001',
+                'tenant_id' => 1,
+            ]);
         }
+
+        // Asignar rol solo si no lo tiene
+        if (!$user->hasRole('super_admin')) {
+            $user->assignRole('super_admin');
+        }
+
+        $this->command->info('  ✓ Usuario super_admin@cobrador.com creado/actualizado');
+        $this->command->warn('  ⚠️  Password: password (cámbialo en producción)');
 
         $this->command->newLine();
         $this->command->info('✅ Super Admin configurado exitosamente!');

@@ -215,6 +215,9 @@ class UserController extends BaseController
             $userData['assigned_cobrador_id'] = $currentUser->id; // Asignar el ID del cobrador
         }
 
+        // Asignar automáticamente el tenant_id del usuario autenticado
+        $userData['tenant_id'] = $currentUser->tenant_id;
+
         // Solo agregar email si se proporciona
         if ($request->filled('email')) {
             $userData['email'] = $request->email;
