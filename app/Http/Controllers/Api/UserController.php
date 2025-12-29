@@ -38,7 +38,12 @@ class UserController extends BaseController
             // Cobrador solo ve sus clientes asignados
             $query->where('assigned_cobrador_id', $currentUser->id);
         }
-        // Admin ve todos los usuarios (sin filtro adicional)
+
+        // 🔒 MULTI-TENANCY: Filtrar por tenant (excepto super_admin)
+        if (!$currentUser->hasRole('super_admin')) {
+            $query->where('tenant_id', $currentUser->tenant_id);
+        }
+        // Super Admin ve usuarios de todos los tenants
 
         // Filtro por roles
         if ($request->has('roles')) {
