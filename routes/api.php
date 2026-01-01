@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\CreditController;
 use App\Http\Controllers\Api\CreditWaitingListController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\InterestRateController;
+use App\Http\Controllers\Api\LoanFrequencyController;
 use App\Http\Controllers\Api\MapController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PaymentController;
@@ -106,6 +107,10 @@ Route::middleware(['auth:sanctum', 'tenant_active'])->group(function () {
         'destroy' => 'api.interest-rates.destroy',
     ]);
     Route::get('/interest-rates/active', [InterestRateController::class, 'active'])->name('api.interest-rates.active');
+
+    // Frecuencias de pago (configuración para formulario de créditos)
+    Route::get('/loan-frequencies', [LoanFrequencyController::class, 'index'])->name('api.loan-frequencies.index');
+    Route::get('/loan-frequencies/{code}', [LoanFrequencyController::class, 'show'])->name('api.loan-frequencies.show');
 
     // Créditos - Rutas específicas PRIMERO (antes del resource)
     Route::get('/credits/form-config', [CreditController::class, 'formConfig'])->name('api.credits.form-config');

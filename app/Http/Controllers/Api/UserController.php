@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 use Spatie\Permission\Models\Role;
 
 class UserController extends BaseController
@@ -116,6 +117,9 @@ class UserController extends BaseController
     public function store(Request $request)
     {
         // return $request->all(); Debugging line to check request data
+        // Obtener el usuario autenticado (necesario para validaciones con scope por tenant)
+        $currentUser = Auth::user();
+
         // Determinar si solo se está creando un cliente
         $requestedRoles = $request->get('roles', []);
         $isOnlyClient = count($requestedRoles) === 1 && in_array('client', $requestedRoles);
@@ -123,7 +127,14 @@ class UserController extends BaseController
         // Validación dinámica basada en el rol
         $validationRules = [
             'name' => 'required|string|max:255',
-            'ci' => 'required|string|max:20|unique:users,ci', // Validación para el CI
+            'ci' => [
+                'required',
+                'string',
+                'max:20',
+                Rule::unique('users', 'ci')->where(function ($query) use ($currentUser) {
+                    return $query->where('tenant_id', $currentUser->tenant_id);
+                })
+            ],
             'password' => 'nullable|string|min:8',
             'address' => 'nullable|string',
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
@@ -147,16 +158,61 @@ class UserController extends BaseController
 
         // Si solo es cliente, el email y phone son opcionales
         if ($isOnlyClient) {
-            $validationRules['email'] = 'nullable|string|email|max:255|unique:users,email';
-            $validationRules['phone'] = 'nullable|string|max:20|unique:users,phone';
+            $validationRules['email'] = [
+                'nullable',
+                'string',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')->where(function ($query) use ($currentUser) {
+                    return $query->where('tenant_id', $currentUser->tenant_id);
+                })
+            ];
+            $validationRules['phone'] = [
+                'nullable',
+                'string',
+                'max:20',
+                Rule::unique('users', 'phone')->where(function ($query) use ($currentUser) {
+                    return $query->where('tenant_id', $currentUser->tenant_id);
+                })
+            ];
         } elseif ($isCreatingCobrador) {
             // Para cobradores: email o phone debe ser proporcionado (para login)
-            $validationRules['email'] = 'nullable|string|email|max:255|unique:users,email';
-            $validationRules['phone'] = 'nullable|string|max:20|unique:users,phone';
+            $validationRules['email'] = [
+                'nullable',
+                'string',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')->where(function ($query) use ($currentUser) {
+                    return $query->where('tenant_id', $currentUser->tenant_id);
+                })
+            ];
+            $validationRules['phone'] = [
+                'nullable',
+                'string',
+                'max:20',
+                Rule::unique('users', 'phone')->where(function ($query) use ($currentUser) {
+                    return $query->where('tenant_id', $currentUser->tenant_id);
+                })
+            ];
         } else {
             // Para otros roles (admin, manager), email es requerido
-            $validationRules['email'] = 'required|string|email|max:255|unique:users,email';
-            $validationRules['phone'] = 'nullable|string|max:20|unique:users,phone';
+            $validationRules['email'] = [
+                'required',
+                'string',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')->where(function ($query) use ($currentUser) {
+                    return $query->where('tenant_id', $currentUser->tenant_id);
+                })
+            ];
+            $validationRules['phone'] = [
+                'nullable',
+                'string',
+                'max:20',
+                Rule::unique('users', 'phone')->where(function ($query) use ($currentUser) {
+                    return $query->where('tenant_id', $currentUser->tenant_id);
+                })
+            ];
         }
 
         $request->validate($validationRules);
@@ -167,9 +223,6 @@ class UserController extends BaseController
                 return $this->sendError('Campos requeridos', 'Para cobradores, se requiere al menos email o teléfono para el inicio de sesión.', 400);
             }
         }
-
-        // Obtener el usuario autenticado
-        $currentUser = Auth::user();
 
         // Validar permisos según el rol del usuario autenticado
         $requestedRoles = $request->roles;
@@ -296,6 +349,9 @@ class UserController extends BaseController
      */
     public function update(Request $request, User $user)
     {
+        // Obtener el usuario autenticado (necesario para validaciones con scope por tenant)
+        $currentUser = Auth::user();
+
         // Determinar si el usuario tiene solo el rol de cliente
         $userRoles = $user->roles->pluck('name')->toArray();
         $isOnlyClient = count($userRoles) === 1 && in_array('client', $userRoles);
@@ -303,8 +359,26 @@ class UserController extends BaseController
         // Validación dinámica basada en el rol actual del usuario
         $validationRules = [
             'name' => 'required|string|max:255',
-            'ci' => 'required|string|max:20|unique:users,ci,'.$user->id, // Validación para el CI en actualización
-            'phone' => 'nullable|string|max:20|unique:users,phone,'.$user->id,
+            'ci' => [
+                'required',
+                'string',
+                'max:20',
+                Rule::unique('users', 'ci')
+                    ->ignore($user->id)
+                    ->where(function ($query) use ($currentUser) {
+                        return $query->where('tenant_id', $currentUser->tenant_id);
+                    })
+            ],
+            'phone' => [
+                'nullable',
+                'string',
+                'max:20',
+                Rule::unique('users', 'phone')
+                    ->ignore($user->id)
+                    ->where(function ($query) use ($currentUser) {
+                        return $query->where('tenant_id', $currentUser->tenant_id);
+                    })
+            ],
             'address' => 'nullable|string',
             'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'roles' => 'array',
@@ -319,9 +393,29 @@ class UserController extends BaseController
 
         // Si solo es cliente, el email es opcional
         if ($isOnlyClient) {
-            $validationRules['email'] = 'nullable|string|email|max:255|unique:users,email,'.$user->id;
+            $validationRules['email'] = [
+                'nullable',
+                'string',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')
+                    ->ignore($user->id)
+                    ->where(function ($query) use ($currentUser) {
+                        return $query->where('tenant_id', $currentUser->tenant_id);
+                    })
+            ];
         } else {
-            $validationRules['email'] = 'required|string|email|max:255|unique:users,email,'.$user->id;
+            $validationRules['email'] = [
+                'required',
+                'string',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')
+                    ->ignore($user->id)
+                    ->where(function ($query) use ($currentUser) {
+                        return $query->where('tenant_id', $currentUser->tenant_id);
+                    })
+            ];
         }
 
         $request->validate($validationRules);

@@ -36,6 +36,7 @@ class TenantSeeder extends Seeder
         $tenant1->setSetting('auto_suspend_overdue_credits', true, 'boolean');
         $tenant1->setSetting('allow_custom_payment_frequency', false, 'boolean'); // NO puede editar frecuencia
         $tenant1->setSetting('default_payment_frequency', 'mensual', 'string');
+        $tenant1->setSetting('enable_auto_logout_on_app_switch', true, 'boolean'); // SÍ cerrar sesión al cambiar de app
 
         // Crear o actualizar admin para Empresa Inicial
         $admin1 = User::updateOrCreate(
@@ -73,6 +74,7 @@ class TenantSeeder extends Seeder
         $tenant2->setSetting('auto_suspend_overdue_credits', true, 'boolean');
         $tenant2->setSetting('allow_custom_payment_frequency', true, 'boolean'); // SÍ puede editar frecuencia
         $tenant2->setSetting('default_payment_frequency', 'mensual', 'string');
+        $tenant2->setSetting('enable_auto_logout_on_app_switch', false, 'boolean'); // NO cerrar sesión al cambiar de app (ejemplo de configuración diferente)
 
         // Crear o actualizar admin para Empresa Rosa
         $admin2 = User::updateOrCreate(

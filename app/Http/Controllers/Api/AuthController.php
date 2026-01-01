@@ -6,34 +6,93 @@ use App\Models\Credit;
 use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends BaseController
 {
     /**
      * Register a new user.
+     *
+     * Soporta validación con scope por tenant si se proporciona tenant_id
+     * o si el usuario está autenticado.
      */
     public function register(Request $request)
     {
-        $request->validate([
-            'name'     => 'required|string|max:255',
-            'email'    => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8|confirmed',
-            'phone'    => 'nullable|string|max:20|unique:users',
-            'address'  => 'nullable|string',
-            'ci'       => 'required|string|max:20|unique:users,ci',
-        ]);
+        // Determinar el tenant_id para scope de validación
+        $tenantId = null;
 
-        $user = User::create([
+        // Opción 1: tenant_id explícito en el request
+        if ($request->filled('tenant_id')) {
+            $tenantId = $request->tenant_id;
+        }
+        // Opción 2: usuario autenticado (admin creando usuario)
+        elseif (Auth::check()) {
+            $tenantId = Auth::user()->tenant_id;
+        }
+
+        // Construir reglas de validación con scope por tenant si aplica
+        $validationRules = [
+            'name'      => 'required|string|max:255',
+            'password'  => 'required|string|min:8|confirmed',
+            'address'   => 'nullable|string',
+            'tenant_id' => 'nullable|integer|exists:tenants,id',
+        ];
+
+        // Aplicar scope por tenant si tenemos tenant_id
+        if ($tenantId !== null) {
+            $validationRules['email'] = [
+                'required',
+                'string',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')->where(function ($query) use ($tenantId) {
+                    return $query->where('tenant_id', $tenantId);
+                })
+            ];
+            $validationRules['phone'] = [
+                'nullable',
+                'string',
+                'max:20',
+                Rule::unique('users', 'phone')->where(function ($query) use ($tenantId) {
+                    return $query->where('tenant_id', $tenantId);
+                })
+            ];
+            $validationRules['ci'] = [
+                'required',
+                'string',
+                'max:20',
+                Rule::unique('users', 'ci')->where(function ($query) use ($tenantId) {
+                    return $query->where('tenant_id', $tenantId);
+                })
+            ];
+        } else {
+            // Sin tenant_id: usar validación global (backward compatible)
+            $validationRules['email'] = 'required|string|email|max:255|unique:users';
+            $validationRules['phone'] = 'nullable|string|max:20|unique:users';
+            $validationRules['ci'] = 'required|string|max:20|unique:users,ci';
+        }
+
+        $request->validate($validationRules);
+
+        $userData = [
             'name'     => $request->name,
             'email'    => $request->email,
             'password' => Hash::make($request->password),
             'phone'    => $request->phone,
             'address'  => $request->address,
             'ci'       => $request->ci,
-        ]);
+        ];
+
+        // Agregar tenant_id si está disponible
+        if ($tenantId !== null) {
+            $userData['tenant_id'] = $tenantId;
+        }
+
+        $user = User::create($userData);
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
@@ -79,10 +138,19 @@ class AuthController extends BaseController
         // Obtener estadísticas optimizadas según el rol
         $statistics = $this->getLoginStatistics($user);
 
+        // Obtener configuraciones de seguridad del tenant
+        $tenant = $user->tenant;
+        $securitySettings = [
+            'auto_logout_enabled' => $tenant
+                ? (bool) $tenant->getSetting('enable_auto_logout_on_app_switch', true)
+                : true, // Por defecto habilitado si no tiene tenant
+        ];
+
         return $this->sendResponse([
-            'user'       => $user,
-            'token'      => $token,
-            'statistics' => $statistics,
+            'user'              => $user,
+            'token'             => $token,
+            'statistics'        => $statistics,
+            'security_settings' => $securitySettings,
         ], 'Inicio de sesión exitoso');
     }
 

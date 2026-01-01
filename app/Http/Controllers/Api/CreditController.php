@@ -203,6 +203,43 @@ class CreditController extends BaseController
             }
         }
 
+        // ✅ NUEVA VALIDACIÓN: Verificar configuración de frecuencia desde loan_frequencies
+        $loanFrequency = \App\Models\LoanFrequency::findByCode($tenant->id, $request->frequency);
+
+        if ($loanFrequency) {
+            // Verificar que la frecuencia esté habilitada
+            if (!$loanFrequency->is_enabled) {
+                return $this->sendError(
+                    'Frecuencia no disponible',
+                    "La frecuencia '{$loanFrequency->name}' no está habilitada para su empresa.",
+                    403
+                );
+            }
+
+            // Validar número de cuotas según configuración
+            $requestedInstallments = $request->total_installments ?? 24;
+
+            // ⚠️ SOLO validar obligatoriamente para frecuencias FIJAS (diaria)
+            // Para frecuencias flexibles, los rangos son solo referenciales
+            if ($loanFrequency->is_fixed_duration) {
+                // Frecuencia FIJA: Validación OBLIGATORIA
+                if (!$loanFrequency->isValidInstallments($requestedInstallments)) {
+                    return $this->sendError(
+                        'Número de cuotas no válido',
+                        "La frecuencia '{$loanFrequency->name}' requiere exactamente {$loanFrequency->fixed_installments} cuotas.",
+                        422
+                    );
+                }
+
+                // Forzar valores para frecuencia fija
+                $request->merge([
+                    'total_installments' => $loanFrequency->fixed_installments
+                ]);
+            }
+            // Para frecuencias FLEXIBLES: Los rangos min/max son solo sugerencias
+            // El usuario puede elegir libremente el número de cuotas
+        }
+
         // Verificar que el cliente exista y tenga rol de cliente
         $client = User::findOrFail($request->client_id);
         if (! $client->hasRole('client')) {
@@ -315,28 +352,33 @@ class CreditController extends BaseController
         // Determinar tasa de interés según rol y parámetros
         $interestRateId    = null;
         $interestRateValue = 0.0;
-        if ($currentUser->hasRole('cobrador')) {
+
+        // ✅ PRIORIDAD 1: Si el frontend envía interest_rate calculado, usarlo directamente
+        if ($request->filled('interest_rate')) {
+            $interestRateValue = (float) $request->interest_rate;
+
+            // Intentar encontrar interest_rate_id si viene especificado
+            if ($request->filled('interest_rate_id')) {
+                $rateModel = InterestRate::find($request->interest_rate_id);
+                if ($rateModel) {
+                    $interestRateId = $rateModel->id;
+                }
+            }
+        }
+        // ✅ PRIORIDAD 2: Si viene interest_rate_id sin rate, buscar el rate del modelo
+        elseif ($request->filled('interest_rate_id')) {
+            $rateModel = InterestRate::find($request->interest_rate_id);
+            if ($rateModel) {
+                $interestRateId    = $rateModel->id;
+                $interestRateValue = (float) $rateModel->rate;
+            }
+        }
+        // ✅ PRIORIDAD 3: Fallback a la tasa activa del sistema
+        else {
             $activeRate = InterestRate::getActive();
             if ($activeRate) {
                 $interestRateId    = $activeRate->id;
                 $interestRateValue = (float) $activeRate->rate;
-            }
-        } else {
-            if ($request->filled('interest_rate_id')) {
-                $rateModel = InterestRate::find($request->interest_rate_id);
-                if ($rateModel) {
-                    $interestRateId    = $rateModel->id;
-                    $interestRateValue = (float) $rateModel->rate;
-                }
-            } elseif ($request->filled('interest_rate')) {
-                $interestRateValue = (float) $request->interest_rate;
-            } else {
-                // Fallback a la activa si existe
-                $activeRate = InterestRate::getActive();
-                if ($activeRate) {
-                    $interestRateId    = $activeRate->id;
-                    $interestRateValue = (float) $activeRate->rate;
-                }
             }
         }
 
@@ -369,8 +411,10 @@ class CreditController extends BaseController
             'interest_rate'                => $interestRateValue,
             'total_amount'                 => $request->total_amount ?? $request->amount,
             'balance'                      => $request->balance,
+            'total_paid'                   => 0.00, // Inicializar en 0 (nuevo crédito sin pagos)
             'installment_amount'           => $request->installment_amount, // si no se envía, el modelo lo calculará
             'total_installments'           => $request->total_installments ?? 24,
+            'paid_installments'            => 0, // Inicializar en 0 (nuevo crédito sin cuotas pagadas)
             'frequency'                    => $request->frequency,
             'start_date'                   => $startDate,
             'end_date'                     => $endDate,

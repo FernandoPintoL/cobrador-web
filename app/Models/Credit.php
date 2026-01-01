@@ -906,6 +906,12 @@ class Credit extends Model
                     // Fallback: días simples
                     $currentDueDate->addDay();
             }
+
+            // Para pagos diarios, avanzar al siguiente día para la próxima iteración
+            // (igual que en getPaymentSchedule para mantener consistencia)
+            if ($this->frequency === 'daily' && $i < $totalInstallments - 1) {
+                $currentDueDate = $currentDueDate->copy()->addDay();
+            }
         }
 
         // La fecha de fin es la fecha de la última cuota

@@ -220,6 +220,12 @@ class TenantSettingController extends BaseController
                 'default' => true,
             ],
             [
+                'key' => 'enable_auto_logout_on_app_switch',
+                'description' => 'Cerrar sesión automáticamente al cambiar de app',
+                'type' => 'boolean',
+                'default' => true,
+            ],
+            [
                 'key' => 'require_photo_on_payment',
                 'description' => 'Requerir foto al registrar pago',
                 'type' => 'boolean',
