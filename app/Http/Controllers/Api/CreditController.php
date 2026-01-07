@@ -162,13 +162,19 @@ class CreditController extends BaseController
             'total_installments'           => 'nullable|integer|min:1',
             'latitude'                     => 'nullable|numeric|between:-90,90',
             'longitude'                    => 'nullable|numeric|between:-180,180',
+            // ✅ NUEVO: Validaciones para crédito antiguo
+            'is_legacy_credit'             => 'nullable|boolean',
+            'paid_installments_count'      => 'nullable|integer|min:0',
         ]);
 
         $currentUser = Auth::user();
         $tenant = $currentUser->tenant;
 
-        // Validar contra settings del tenant
-        if ($tenant) {
+        // ✅ NUEVO: Determinar si es modo legacy ANTES de validaciones
+        $isLegacyMode = $request->filled('is_legacy_credit') && $request->is_legacy_credit;
+
+        // Validar contra settings del tenant (excepto para créditos legacy)
+        if ($tenant && !$isLegacyMode) {
             // Validar si puede editar el interés
             if ($request->has('interest_rate_id')) {
                 $canEditInterest = $tenant->getSetting('allow_custom_interest_per_credit', false);
@@ -194,12 +200,10 @@ class CreditController extends BaseController
             ];
             $expectedFrequency = $frequencyMap[$defaultFrequency] ?? 'monthly';
 
+            // Si no se permite editar la frecuencia, usar la configurada en el tenant automáticamente
             if (!$canEditFrequency && $request->frequency !== $expectedFrequency) {
-                return $this->sendError(
-                    'Configuración no permitida',
-                    "No está permitido cambiar la frecuencia de pago. La frecuencia debe ser: {$defaultFrequency}.",
-                    403
-                );
+                // En lugar de rechazar, forzar la frecuencia del tenant
+                $request->merge(['frequency' => $expectedFrequency]);
             }
         }
 
@@ -332,19 +336,50 @@ class CreditController extends BaseController
             }
         }
 
+        // ✅ NUEVO: Validaciones para modo crédito antiguo
+        if ($request->filled('is_legacy_credit') && $request->is_legacy_credit) {
+            // Permitir 0 o null para créditos antiguos sin pagos
+            $paidCount = (int) ($request->paid_installments_count ?? 0);
+            $totalInstallments = (int) ($request->total_installments ?? 24);
+
+            // Solo validar si hay cuotas pagadas
+            if ($paidCount > 0 && $paidCount >= $totalInstallments) {
+                return $this->sendError(
+                    'Validación fallida',
+                    'Las cuotas pagadas deben ser menores al total de cuotas',
+                    422
+                );
+            }
+
+            // Validar que la fecha de inicio sea pasada
+            $startDate = \Carbon\Carbon::parse($request->start_date);
+            if ($startDate->isFuture()) {
+                return $this->sendError(
+                    'Validación fallida',
+                    'Para créditos antiguos, la fecha de inicio debe ser pasada',
+                    422
+                );
+            }
+        }
+
         // 2) Determinar el estado inicial del crédito, con fast-track para manager con cliente directo
         $isDirectClientOfManager = $currentUser->hasRole('manager') && ($client->assigned_manager_id === $currentUser->id);
         $forceWaitingDelivery    = false;
 
         $initialStatus = 'active'; // Por defecto para compatibilidad
-        if ($request->has('status')) {
+        $isLegacyMode = $request->filled('is_legacy_credit') && $request->is_legacy_credit;
+
+        if ($isLegacyMode) {
+            // Para créditos antiguos, el estado inicial es SIEMPRE 'active'
+            $initialStatus = 'active';
+        } elseif ($request->has('status')) {
             $initialStatus = $request->status;
         } elseif ($currentUser->hasRole('manager') || $currentUser->hasRole('cobrador')) {
             // Los managers y cobradores crean créditos en lista de espera por defecto
             $initialStatus = 'pending_approval';
         }
-        // Fast-track: si manager crea a cliente directo, saltar aprobación
-        if ($isDirectClientOfManager) {
+        // Fast-track: si manager crea a cliente directo, saltar aprobación (NO aplica a legacy)
+        if ($isDirectClientOfManager && !$isLegacyMode) {
             $initialStatus        = 'waiting_delivery';
             $forceWaitingDelivery = true;
         }
@@ -403,6 +438,12 @@ class CreditController extends BaseController
             $scheduledDeliveryDate = $scheduledDeliveryDate ?? (clone $approvedAtNow)->addDay();
         }
 
+        // ✅ NUEVO: Determinar paid_installments según modo
+        $paidInstallments = 0;
+        if ($isLegacyMode) {
+            $paidInstallments = (int) ($request->paid_installments_count ?? 0);
+        }
+
         $credit = Credit::create([
             'client_id'                    => $request->client_id,
             'created_by'                   => $currentUser->id,
@@ -411,10 +452,10 @@ class CreditController extends BaseController
             'interest_rate'                => $interestRateValue,
             'total_amount'                 => $request->total_amount ?? $request->amount,
             'balance'                      => $request->balance,
-            'total_paid'                   => 0.00, // Inicializar en 0 (nuevo crédito sin pagos)
+            'total_paid'                   => 0.00, // Se actualizará después de crear pagos legacy
             'installment_amount'           => $request->installment_amount, // si no se envía, el modelo lo calculará
             'total_installments'           => $request->total_installments ?? 24,
-            'paid_installments'            => 0, // Inicializar en 0 (nuevo crédito sin cuotas pagadas)
+            'paid_installments'            => $paidInstallments, // ✅ NUEVO: Cuotas pagadas para legacy
             'frequency'                    => $request->frequency,
             'start_date'                   => $startDate,
             'end_date'                     => $endDate,
@@ -424,6 +465,11 @@ class CreditController extends BaseController
             'latitude'                     => $request->latitude,
             'longitude'                    => $request->longitude,
         ]);
+
+        // ✅ NUEVO: Crear pagos automáticos para créditos antiguos
+        if ($isLegacyMode) {
+            $this->createLegacyPayments($credit, $paidInstallments);
+        }
 
         // Si se aplicó fast-track, setear aprobaciones automáticamente
         if ($forceWaitingDelivery) {
@@ -1137,5 +1183,50 @@ class CreditController extends BaseController
         ];
 
         return $this->sendResponse($config, 'Configuración del formulario obtenida exitosamente.');
+    }
+
+    /**
+     * ✅ NUEVO: Crea pagos automáticos para créditos antiguos
+     *
+     * @param Credit $credit El crédito recién creado
+     * @param int $paidCount Número de cuotas ya pagadas
+     * @return void
+     */
+    private function createLegacyPayments(Credit $credit, int $paidCount)
+    {
+        if ($paidCount <= 0) {
+            return;
+        }
+
+        $installmentAmount = $credit->installment_amount ?? 0;
+        if ($installmentAmount <= 0) {
+            return;
+        }
+
+        // Obtener el cobrador asignado al cliente
+        $cobrador = $credit->client->assignedCobrador;
+        $cobradorId = $cobrador ? $cobrador->id : Auth::id();
+
+        $now = now();
+
+        // Crear un pago por cada cuota pagada
+        for ($i = 1; $i <= $paidCount; $i++) {
+            \App\Models\Payment::create([
+                'credit_id'          => $credit->id,
+                'client_id'          => $credit->client_id,
+                'cobrador_id'        => $cobradorId,
+                'amount'             => $installmentAmount,
+                'accumulated_amount' => $installmentAmount * $i,
+                'payment_date'       => $now, // Fecha del día (centralizado)
+                'payment_method'     => 'cash', // Método por defecto
+                'installment_number' => $i,
+                'status'             => 'completed',
+                'received_by'        => Auth::id(),
+                'tenant_id'          => $credit->tenant_id,
+            ]);
+        }
+
+        // Recalcular el balance del crédito
+        $credit->recalculateBalance();
     }
 }
