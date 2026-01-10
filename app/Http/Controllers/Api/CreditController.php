@@ -438,10 +438,18 @@ class CreditController extends BaseController
             $scheduledDeliveryDate = $scheduledDeliveryDate ?? (clone $approvedAtNow)->addDay();
         }
 
-        // ✅ NUEVO: Determinar paid_installments según modo
+        // ✅ NUEVO: Determinar paid_installments y total_paid según modo
         $paidInstallments = 0;
+        $initialTotalPaid = 0.00;
+
         if ($isLegacyMode) {
             $paidInstallments = (int) ($request->paid_installments_count ?? 0);
+
+            // ✅ FIX: Calcular total_paid inicial correctamente para créditos legacy
+            // Esto evita inconsistencias temporales antes de que recalculateBalance() se ejecute
+            if ($paidInstallments > 0 && $request->installment_amount) {
+                $initialTotalPaid = $paidInstallments * $request->installment_amount;
+            }
         }
 
         $credit = Credit::create([
@@ -452,7 +460,7 @@ class CreditController extends BaseController
             'interest_rate'                => $interestRateValue,
             'total_amount'                 => $request->total_amount ?? $request->amount,
             'balance'                      => $request->balance,
-            'total_paid'                   => 0.00, // Se actualizará después de crear pagos legacy
+            'total_paid'                   => $initialTotalPaid, // ✅ FIX: Inicializar correctamente para legacy
             'installment_amount'           => $request->installment_amount, // si no se envía, el modelo lo calculará
             'total_installments'           => $request->total_installments ?? 24,
             'paid_installments'            => $paidInstallments, // ✅ NUEVO: Cuotas pagadas para legacy
@@ -1188,6 +1196,10 @@ class CreditController extends BaseController
     /**
      * ✅ NUEVO: Crea pagos automáticos para créditos antiguos
      *
+     * IMPORTANTE: Usa withoutEvents() para evitar duplicación de paid_installments.
+     * Los eventos de Payment incrementan automáticamente paid_installments, lo cual
+     * causaría conteo doble si no se desactivan durante la creación de pagos legacy.
+     *
      * @param Credit $credit El crédito recién creado
      * @param int $paidCount Número de cuotas ya pagadas
      * @return void
@@ -1209,24 +1221,30 @@ class CreditController extends BaseController
 
         $now = now();
 
-        // Crear un pago por cada cuota pagada
-        for ($i = 1; $i <= $paidCount; $i++) {
-            \App\Models\Payment::create([
-                'credit_id'          => $credit->id,
-                'client_id'          => $credit->client_id,
-                'cobrador_id'        => $cobradorId,
-                'amount'             => $installmentAmount,
-                'accumulated_amount' => $installmentAmount * $i,
-                'payment_date'       => $now, // Fecha del día (centralizado)
-                'payment_method'     => 'cash', // Método por defecto
-                'installment_number' => $i,
-                'status'             => 'completed',
-                'received_by'        => Auth::id(),
-                'tenant_id'          => $credit->tenant_id,
-            ]);
-        }
+        // ✅ FIX CRÍTICO: Desactivar eventos para evitar duplicación de paid_installments
+        // Los eventos Payment::created() incrementan automáticamente paid_installments,
+        // pero el crédito legacy ya tiene el valor correcto asignado en la creación.
+        \App\Models\Payment::withoutEvents(function () use ($credit, $paidCount, $installmentAmount, $cobradorId, $now) {
+            // Crear un pago por cada cuota pagada
+            for ($i = 1; $i <= $paidCount; $i++) {
+                \App\Models\Payment::create([
+                    'credit_id'          => $credit->id,
+                    'client_id'          => $credit->client_id,
+                    'cobrador_id'        => $cobradorId,
+                    'amount'             => $installmentAmount,
+                    'accumulated_amount' => $installmentAmount * $i,
+                    'payment_date'       => $now, // Fecha del día (centralizado)
+                    'payment_method'     => 'cash', // Método por defecto
+                    'installment_number' => $i,
+                    'status'             => 'completed',
+                    'received_by'        => Auth::id(),
+                    'tenant_id'          => $credit->tenant_id,
+                ]);
+            }
+        });
 
-        // Recalcular el balance del crédito
+        // ✅ Recalcular el balance del crédito para asegurar coherencia
+        // Esto actualiza balance, total_paid y paid_installments basándose en los pagos reales
         $credit->recalculateBalance();
     }
 }

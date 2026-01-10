@@ -503,10 +503,15 @@ class UserController extends BaseController
         ]);
 
         $role = $request->roles;
+        $currentUser = Auth::user();
 
         $users = User::with(['roles', 'permissions'])
             ->whereHas('roles', function ($query) use ($role) {
                 $query->where('name', $role);
+            })
+            // ✅ FIX: Filtrar por tenant_id (excepto super_admin)
+            ->when(!$currentUser->hasRole('super_admin'), function ($query) use ($currentUser) {
+                $query->where('tenant_id', $currentUser->tenant_id);
             })
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
@@ -534,6 +539,7 @@ class UserController extends BaseController
         ]);
 
         $roles = explode(',', $request->roles);
+        $currentUser = Auth::user();
 
         // Validar que todos los roles sean válidos
         $validRoles = ['client', 'manager', 'cobrador', 'admin'];
@@ -546,6 +552,10 @@ class UserController extends BaseController
         $users = User::with(['roles', 'permissions'])
             ->whereHas('roles', function ($query) use ($roles) {
                 $query->whereIn('name', array_map('trim', $roles));
+            })
+            // ✅ FIX: Filtrar por tenant_id (excepto super_admin)
+            ->when(!$currentUser->hasRole('super_admin'), function ($query) use ($currentUser) {
+                $query->where('tenant_id', $currentUser->tenant_id);
             })
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
@@ -887,6 +897,13 @@ class UserController extends BaseController
      */
     public function getClientsByCobrador(Request $request, User $cobrador)
     {
+        $currentUser = Auth::user();
+
+        // ✅ FIX: Verificar que el cobrador pertenezca al mismo tenant (excepto super_admin)
+        if (!$currentUser->hasRole('super_admin') && $cobrador->tenant_id !== $currentUser->tenant_id) {
+            return $this->sendError('No autorizado', 'No tienes permisos para ver los clientes de este cobrador', 403);
+        }
+
         // Verificar que el usuario sea un cobrador
         if (! $cobrador->hasRole('cobrador')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un cobrador', 400);
@@ -894,6 +911,8 @@ class UserController extends BaseController
 
         $clients = $cobrador->assignedClients()
             ->with(['roles', 'permissions'])
+            // ✅ FIX: Filtrar explícitamente por tenant_id para mayor seguridad
+            ->where('tenant_id', $cobrador->tenant_id)
             ->when($request->search, function ($query, $search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('id', 'ilike', "%{$search}%")
@@ -991,6 +1010,13 @@ class UserController extends BaseController
      */
     public function getCobradoresByManager(Request $request, User $manager)
     {
+        $currentUser = Auth::user();
+
+        // ✅ FIX CRÍTICO: Verificar que el manager pertenezca al mismo tenant (excepto super_admin)
+        if (!$currentUser->hasRole('super_admin') && $manager->tenant_id !== $currentUser->tenant_id) {
+            return $this->sendError('No autorizado', 'No tienes permisos para ver los cobradores de este manager', 403);
+        }
+
         // Verificar que el usuario sea un manager
         if (! $manager->hasRole('manager')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
@@ -1002,6 +1028,8 @@ class UserController extends BaseController
             $query->where('name', 'cobrador');
         })
             ->where('assigned_manager_id', $manager->id)
+            // ✅ FIX CRÍTICO: Filtrar explícitamente por tenant_id
+            ->where('tenant_id', $manager->tenant_id)
             ->with(['roles', 'permissions'])
             ->withCount('assignedClients') // Agrega assigned_clients_count al resultado
             ->when($request->search, function ($query, $search) {
@@ -1010,8 +1038,7 @@ class UserController extends BaseController
                         ->orWhere('name', 'ilike', "%{$search}%")
                         ->orWhere('email', 'ilike', "%{$search}%")
                         ->orWhere('phone', 'ilike', "%{$search}%")
-                        ->orWhere('ci', 'ilike', "%{$search}%")
-                        ->orWhere('client_category', 'ilike', "%{$search}%");
+                        ->orWhere('ci', 'ilike', "%{$search}%");
                 });
             })
             ->orderBy('name', 'asc')
@@ -1105,6 +1132,13 @@ class UserController extends BaseController
      */
     public function getAllClientsByManager(Request $request, User $manager)
     {
+        $currentUser = Auth::user();
+
+        // ✅ FIX: Verificar que el manager pertenezca al mismo tenant (excepto super_admin)
+        if (!$currentUser->hasRole('super_admin') && $manager->tenant_id !== $currentUser->tenant_id) {
+            return $this->sendError('No autorizado', 'No tienes permisos para ver los clientes de este manager', 403);
+        }
+
         // Verificar que el usuario sea un manager
         if (! $manager->hasRole('manager')) {
             return $this->sendError('Usuario no válido', 'El usuario especificado no es un manager', 400);
@@ -1115,11 +1149,12 @@ class UserController extends BaseController
         // 2. Clientes asignados a cobradores que están asignados al manager
         $directClients = $manager->assignedClientsDirectly();
 
-        // Obtener IDs de cobradores asignados al manager (filtrar por rol cobrador)
+        // ✅ FIX: Obtener IDs de cobradores asignados al manager (filtrar por rol cobrador Y tenant_id)
         $cobradorIds = User::whereHas('roles', function ($query) {
             $query->where('name', 'cobrador');
         })
             ->where('assigned_manager_id', $manager->id)
+            ->where('tenant_id', $manager->tenant_id)
             ->pluck('id');
 
         // Obtener clientes asignados a esos cobradores
@@ -1136,6 +1171,8 @@ class UserController extends BaseController
             ->whereDoesntHave('roles', function ($query) {
                 $query->where('name', 'manager');
             })
+            // ✅ FIX: Filtrar explícitamente por tenant_id
+            ->where('tenant_id', $manager->tenant_id)
             ->where(function ($query) use ($manager, $cobradorIds) {
                 $query->where('assigned_manager_id', $manager->id) // Clientes directos del manager
                     ->orWhereIn('assigned_cobrador_id', $cobradorIds); // Clientes de cobradores del manager
