@@ -194,7 +194,9 @@ class AuthController extends BaseController
 
         return [
             'summary' => [
-                'total_clientes'      => $user->assignedClients()->count(),
+                'total_clientes'      => $user->assignedClients()
+                    ->whereHas('roles', fn($q) => $q->where('name', 'client'))
+                    ->count(),
                 'creditos_activos'    => Credit::where('created_by', $cobradorId)
                     ->where('status', 'active')
                     ->count(),
@@ -224,8 +226,11 @@ class AuthController extends BaseController
                     ->where('status', 'overdue')
                     ->count(),
                 'clientes_sin_ubicacion'    => $user->assignedClients()
-                    ->whereNull('latitude')
-                    ->orWhereNull('longitude')
+                    ->whereHas('roles', fn($q) => $q->where('name', 'client'))
+                    ->where(function ($query) {
+                        $query->whereNull('latitude')
+                            ->orWhereNull('longitude');
+                    })
                     ->count(),
                 'creditos_por_vencer_7dias' => Credit::where('created_by', $cobradorId)
                     ->where('status', 'active')
@@ -250,8 +255,10 @@ class AuthController extends BaseController
         $today      = today();
         $monthStart = now()->startOfMonth();
 
-        // Obtener IDs de cobradores asignados
-        $cobradorIds = $user->assignedCobradores()->pluck('id');
+        // Obtener IDs de cobradores asignados (verificar que tengan rol de cobrador)
+        $cobradorIds = $user->assignedCobradores()
+            ->whereHas('roles', fn($q) => $q->where('name', 'cobrador'))
+            ->pluck('id');
 
         // Top 5 cobradores del mes
         $topCobradores = Payment::whereIn('cobrador_id', $cobradorIds)
@@ -277,7 +284,6 @@ class AuthController extends BaseController
         $clientesViaCobradores = User::role('client')
             ->whereHas('assignedCobrador', fn($q) => $q->whereIn('id', $cobradorIds))
             ->count();
-        
         $clientesDirectos = $user->assignedClientsDirectly()->count();
         $totalClientes = $clientesViaCobradores + $clientesDirectos;
 
@@ -320,6 +326,7 @@ class AuthController extends BaseController
     /**
      * Estadísticas para Admin
      * Filtra por tenant_id del admin para mostrar solo datos de su empresa
+     * Valida roles para asegurar integridad de datos
      */
     private function getAdminStatistics(User $user)
     {
@@ -329,13 +336,18 @@ class AuthController extends BaseController
 
         // Obtener IDs de usuarios pertenecientes al tenant del admin
         $userIdsInTenant = User::where('tenant_id', $tenantId)->pluck('id');
+        
+        // Obtener IDs de cobradores validados por rol
+        $cobradorIdsValidados = User::where('tenant_id', $tenantId)
+            ->whereHas('roles', fn($q) => $q->where('name', 'cobrador'))
+            ->pluck('id');
 
-        // Filtrar pagos por los usuarios del tenant
+        // Filtrar pagos por los cobradores del tenant validados
         $totalCreditsExpected = Payment::whereBetween('payment_date', [$monthStart, now()])
-            ->whereIn('cobrador_id', $userIdsInTenant)
+            ->whereIn('cobrador_id', $cobradorIdsValidados)
             ->sum('amount');
         $totalCreditsPaid = Payment::whereBetween('payment_date', [$monthStart, now()])
-            ->whereIn('cobrador_id', $userIdsInTenant)
+            ->whereIn('cobrador_id', $cobradorIdsValidados)
             ->where('status', 'paid')
             ->sum('amount');
 
@@ -346,28 +358,34 @@ class AuthController extends BaseController
         return [
             'sistema'       => [
                 'total_usuarios'   => User::where('tenant_id', $tenantId)->count(),
-                'total_cobradores' => User::where('tenant_id', $tenantId)->role('cobrador')->count(),
-                'total_managers'   => User::where('tenant_id', $tenantId)->role('manager')->count(),
-                'total_clientes'   => User::where('tenant_id', $tenantId)->role('client')->count(),
+                'total_cobradores' => User::where('tenant_id', $tenantId)
+                    ->whereHas('roles', fn($q) => $q->where('name', 'cobrador'))
+                    ->count(),
+                'total_managers'   => User::where('tenant_id', $tenantId)
+                    ->whereHas('roles', fn($q) => $q->where('name', 'manager'))
+                    ->count(),
+                'total_clientes'   => User::where('tenant_id', $tenantId)
+                    ->whereHas('roles', fn($q) => $q->where('name', 'client'))
+                    ->count(),
             ],
             'financiero'    => [
-                'cartera_total' => (float) Credit::whereIn('created_by', $userIdsInTenant)
+                'cartera_total' => (float) Credit::whereIn('created_by', $cobradorIdsValidados)
                     ->where('status', 'active')
                     ->sum('balance'),
                 'cobrado_mes'   => (float) $totalCreditsPaid,
                 'tasa_cobro'    => $tasaCobro,
-                'mora_total'    => (float) Payment::whereIn('cobrador_id', $userIdsInTenant)
+                'mora_total'    => (float) Payment::whereIn('cobrador_id', $cobradorIdsValidados)
                     ->where('status', 'overdue')
                     ->sum('amount'),
             ],
             'actividad_hoy' => [
-                'nuevos_creditos'   => Credit::whereIn('created_by', $userIdsInTenant)
+                'nuevos_creditos'   => Credit::whereIn('created_by', $cobradorIdsValidados)
                     ->whereDate('created_at', $today)
                     ->count(),
-                'pagos_registrados' => Payment::whereIn('cobrador_id', $userIdsInTenant)
+                'pagos_registrados' => Payment::whereIn('cobrador_id', $cobradorIdsValidados)
                     ->whereDate('payment_date', $today)
                     ->count(),
-                'monto_cobrado'     => (float) Payment::whereIn('cobrador_id', $userIdsInTenant)
+                'monto_cobrado'     => (float) Payment::whereIn('cobrador_id', $cobradorIdsValidados)
                     ->whereDate('payment_date', $today)
                     ->where('status', 'paid')
                     ->sum('amount'),
@@ -419,11 +437,18 @@ class AuthController extends BaseController
 
     /**
      * Obtener cantidad de cobradores con mora alta (más del 30% de pagos atrasados)
+     * Verifica que realmente tengan el rol de cobrador
      */
     private function getCobradoresConMoraAlta($cobradorIds)
     {
         $count = 0;
         foreach ($cobradorIds as $cobradorId) {
+            // Verificar que el usuario tenga rol de cobrador
+            $cobrador = User::find($cobradorId);
+            if (!$cobrador || !$cobrador->hasRole('cobrador')) {
+                continue;
+            }
+
             $totalPayments   = Payment::where('cobrador_id', $cobradorId)->count();
             $overduePayments = Payment::where('cobrador_id', $cobradorId)
                 ->where('status', 'overdue')
