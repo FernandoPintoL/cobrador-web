@@ -289,7 +289,7 @@ class AuthController extends BaseController
 
         return [
             'resumen_equipo'   => [
-                'total_cobradores'    => $user->assignedCobradores()->count(),
+                'total_cobradores'    => $cobradorIds->count(),
                 'total_clientes'      => $totalClientes,
                 'creditos_activos'    => Credit::whereIn('created_by', $cobradorIds)
                     ->where('status', 'active')
