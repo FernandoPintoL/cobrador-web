@@ -272,12 +272,19 @@ class AuthController extends BaseController
                 ];
             });
 
+        // Calcular total de clientes del manager
+        // Incluir: clientes asignados a cobradores + clientes asignados directamente al manager
+        $clientesViaCobradores = User::role('client')
+            ->whereHas('assignedCobrador', fn($q) => $q->whereIn('id', $cobradorIds))
+            ->count();
+        
+        $clientesDirectos = $user->assignedClientsDirectly()->count();
+        $totalClientes = $clientesViaCobradores + $clientesDirectos;
+
         return [
             'resumen_equipo'   => [
                 'total_cobradores'    => $user->assignedCobradores()->count(),
-                'total_clientes'      => User::role('client')
-                    ->whereHas('assignedCobrador', fn($q) => $q->whereIn('id', $cobradorIds))
-                    ->count(),
+                'total_clientes'      => $totalClientes,
                 'creditos_activos'    => Credit::whereIn('created_by', $cobradorIds)
                     ->where('status', 'active')
                     ->count(),
@@ -305,24 +312,30 @@ class AuthController extends BaseController
                 'total_pagos_atrasados'    => Payment::whereIn('cobrador_id', $cobradorIds)
                     ->where('status', 'overdue')
                     ->count(),
-                'clientes_categoria_c'     => User::role('client')
-                    ->whereHas('assignedCobrador', fn($q) => $q->whereIn('id', $cobradorIds))
-                    ->where('client_category', 'C')
-                    ->count(),
+                'clientes_categoria_c'     => $this->getClientesCategoriaC($user, $cobradorIds),
             ],
         ];
     }
 
     /**
      * Estadísticas para Admin
+     * Filtra por tenant_id del admin para mostrar solo datos de su empresa
      */
     private function getAdminStatistics(User $user)
     {
         $today      = today();
         $monthStart = now()->startOfMonth();
+        $tenantId   = $user->tenant_id;
 
-        $totalCreditsExpected = Payment::whereBetween('payment_date', [$monthStart, now()])->sum('amount');
-        $totalCreditsPaid     = Payment::whereBetween('payment_date', [$monthStart, now()])
+        // Obtener IDs de usuarios pertenecientes al tenant del admin
+        $userIdsInTenant = User::where('tenant_id', $tenantId)->pluck('id');
+
+        // Filtrar pagos por los usuarios del tenant
+        $totalCreditsExpected = Payment::whereBetween('payment_date', [$monthStart, now()])
+            ->whereIn('cobrador_id', $userIdsInTenant)
+            ->sum('amount');
+        $totalCreditsPaid = Payment::whereBetween('payment_date', [$monthStart, now()])
+            ->whereIn('cobrador_id', $userIdsInTenant)
             ->where('status', 'paid')
             ->sum('amount');
 
@@ -332,22 +345,30 @@ class AuthController extends BaseController
 
         return [
             'sistema'       => [
-                'total_usuarios'   => User::count(),
-                'total_cobradores' => User::role('cobrador')->count(),
-                'total_managers'   => User::role('manager')->count(),
-                'total_clientes'   => User::role('client')->count(),
+                'total_usuarios'   => User::where('tenant_id', $tenantId)->count(),
+                'total_cobradores' => User::where('tenant_id', $tenantId)->role('cobrador')->count(),
+                'total_managers'   => User::where('tenant_id', $tenantId)->role('manager')->count(),
+                'total_clientes'   => User::where('tenant_id', $tenantId)->role('client')->count(),
             ],
             'financiero'    => [
-                'cartera_total' => (float) Credit::where('status', 'active')->sum('balance'),
+                'cartera_total' => (float) Credit::whereIn('created_by', $userIdsInTenant)
+                    ->where('status', 'active')
+                    ->sum('balance'),
                 'cobrado_mes'   => (float) $totalCreditsPaid,
                 'tasa_cobro'    => $tasaCobro,
-                'mora_total'    => (float) Payment::where('status', 'overdue')
+                'mora_total'    => (float) Payment::whereIn('cobrador_id', $userIdsInTenant)
+                    ->where('status', 'overdue')
                     ->sum('amount'),
             ],
             'actividad_hoy' => [
-                'nuevos_creditos'   => Credit::whereDate('created_at', $today)->count(),
-                'pagos_registrados' => Payment::whereDate('payment_date', $today)->count(),
-                'monto_cobrado'     => (float) Payment::whereDate('payment_date', $today)
+                'nuevos_creditos'   => Credit::whereIn('created_by', $userIdsInTenant)
+                    ->whereDate('created_at', $today)
+                    ->count(),
+                'pagos_registrados' => Payment::whereIn('cobrador_id', $userIdsInTenant)
+                    ->whereDate('payment_date', $today)
+                    ->count(),
+                'monto_cobrado'     => (float) Payment::whereIn('cobrador_id', $userIdsInTenant)
+                    ->whereDate('payment_date', $today)
                     ->where('status', 'paid')
                     ->sum('amount'),
             ],
@@ -374,6 +395,26 @@ class AuthController extends BaseController
                 'pagos_atrasados'        => $user->payments()->where('status', 'overdue')->count(),
             ],
         ];
+    }
+
+    /**
+     * Obtener cantidad de clientes de categoría C del manager
+     * Incluye tanto clientes asignados a cobradores como directamente al manager
+     */
+    private function getClientesCategoriaC(User $user, $cobradorIds)
+    {
+        // Clientes vía cobradores
+        $clientesViaCobradores = User::role('client')
+            ->whereHas('assignedCobrador', fn($q) => $q->whereIn('id', $cobradorIds))
+            ->where('client_category', 'C')
+            ->count();
+        
+        // Clientes directos del manager
+        $clientesDirectos = $user->assignedClientsDirectly()
+            ->where('client_category', 'C')
+            ->count();
+        
+        return $clientesViaCobradores + $clientesDirectos;
     }
 
     /**
