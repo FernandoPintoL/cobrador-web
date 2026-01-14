@@ -287,14 +287,17 @@ class AuthController extends BaseController
         $clientesDirectos = $user->assignedClientsDirectly()->count();
         $totalClientes = $clientesViaCobradores + $clientesDirectos;
 
+        // IDs para consultar créditos: cobradores + el manager mismo
+        $creditCreatorIds = $cobradorIds->push($managerId)->unique();
+
         return [
             'resumen_equipo'   => [
                 'total_cobradores'    => $cobradorIds->count(),
                 'total_clientes'      => $totalClientes,
-                'creditos_activos'    => Credit::whereIn('created_by', $cobradorIds)
+                'creditos_activos'    => Credit::whereIn('created_by', $creditCreatorIds)
                     ->where('status', 'active')
                     ->count(),
-                'saldo_total_cartera' => (float) Credit::whereIn('created_by', $cobradorIds)
+                'saldo_total_cartera' => (float) Credit::whereIn('created_by', $creditCreatorIds)
                     ->where('status', 'active')
                     ->sum('balance'),
             ],
@@ -303,11 +306,12 @@ class AuthController extends BaseController
                     ->whereDate('payment_date', $today)
                     ->distinct('cobrador_id')
                     ->count('cobrador_id'),
-                'total_cobrado_hoy'  => (float) Payment::whereIn('cobrador_id', $cobradorIds)
+                // Incluir pagos del manager + cobradores
+                'total_cobrado_hoy'  => (float) Payment::whereIn('cobrador_id', $creditCreatorIds)
                     ->whereDate('payment_date', $today)
                     ->where('status', 'paid')
                     ->sum('amount'),
-                'numero_cobros'      => Payment::whereIn('cobrador_id', $cobradorIds)
+                'numero_cobros'      => Payment::whereIn('cobrador_id', $creditCreatorIds)
                     ->whereDate('payment_date', $today)
                     ->where('status', 'paid')
                     ->count(),
@@ -315,7 +319,8 @@ class AuthController extends BaseController
             'top_cobradores'   => $topCobradores,
             'alertas_criticas' => [
                 'cobradores_con_mora_alta' => $this->getCobradoresConMoraAlta($cobradorIds),
-                'total_pagos_atrasados'    => Payment::whereIn('cobrador_id', $cobradorIds)
+                // Incluir pagos atrasados del manager + cobradores
+                'total_pagos_atrasados'    => Payment::whereIn('cobrador_id', $creditCreatorIds)
                     ->where('status', 'overdue')
                     ->count(),
                 'clientes_categoria_c'     => $this->getClientesCategoriaC($user, $cobradorIds),

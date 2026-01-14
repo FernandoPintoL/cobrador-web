@@ -147,34 +147,44 @@ class CreditController extends BaseController
      */
     public function store(Request $request)
     {
-        $request->validate([
+        // ✅ Determinar si es crédito antiguo ANTES de validar
+        $isLegacyCredit = $request->filled('is_legacy_credit') && $request->is_legacy_credit;
+
+        // Validaciones base
+        $rules = [
             'client_id'                    => 'required|exists:users,id',
-            'cobrador_id'                  => 'nullable|exists:users,id', // Para que managers puedan especificar el cobrador
+            'cobrador_id'                  => 'nullable|exists:users,id',
             'amount'                       => 'required|numeric|min:0',
             'balance'                      => 'required|numeric|min:0',
             'frequency'                    => 'required|in:daily,weekly,biweekly,monthly',
             'start_date'                   => 'required|date',
             'end_date'                     => 'required|date|after:start_date',
             'status'                       => 'in:pending_approval,waiting_delivery,active,completed,defaulted,cancelled',
-            'scheduled_delivery_date'      => 'nullable|date|after_or_equal:today', // Permitir misma día si el manager lo autoriza
             'immediate_delivery_requested' => 'sometimes|boolean',
             'interest_rate_id'             => 'nullable|exists:interest_rates,id',
             'total_installments'           => 'nullable|integer|min:1',
             'latitude'                     => 'nullable|numeric|between:-90,90',
             'longitude'                    => 'nullable|numeric|between:-180,180',
-            // ✅ NUEVO: Validaciones para crédito antiguo
             'is_legacy_credit'             => 'nullable|boolean',
             'paid_installments_count'      => 'nullable|integer|min:0',
-        ]);
+        ];
+
+        // ✅ Validación condicional para scheduled_delivery_date
+        if ($isLegacyCredit) {
+            // Para créditos antiguos: permitir cualquier fecha (pasada o futura)
+            $rules['scheduled_delivery_date'] = 'nullable|date';
+        } else {
+            // Para créditos nuevos: solo hoy o futuro
+            $rules['scheduled_delivery_date'] = 'nullable|date|after_or_equal:today';
+        }
+
+        $request->validate($rules);
 
         $currentUser = Auth::user();
         $tenant = $currentUser->tenant;
 
-        // ✅ NUEVO: Determinar si es modo legacy ANTES de validaciones
-        $isLegacyMode = $request->filled('is_legacy_credit') && $request->is_legacy_credit;
-
         // Validar contra settings del tenant (excepto para créditos legacy)
-        if ($tenant && !$isLegacyMode) {
+        if ($tenant && !$isLegacyCredit) {
             // Validar si puede editar el interés
             if ($request->has('interest_rate_id')) {
                 $canEditInterest = $tenant->getSetting('allow_custom_interest_per_credit', false);
@@ -367,9 +377,8 @@ class CreditController extends BaseController
         $forceWaitingDelivery    = false;
 
         $initialStatus = 'active'; // Por defecto para compatibilidad
-        $isLegacyMode = $request->filled('is_legacy_credit') && $request->is_legacy_credit;
 
-        if ($isLegacyMode) {
+        if ($isLegacyCredit) {
             // Para créditos antiguos, el estado inicial es SIEMPRE 'active'
             $initialStatus = 'active';
         } elseif ($request->has('status')) {
@@ -379,7 +388,7 @@ class CreditController extends BaseController
             $initialStatus = 'pending_approval';
         }
         // Fast-track: si manager crea a cliente directo, saltar aprobación (NO aplica a legacy)
-        if ($isDirectClientOfManager && !$isLegacyMode) {
+        if ($isDirectClientOfManager && !$isLegacyCredit) {
             $initialStatus        = 'waiting_delivery';
             $forceWaitingDelivery = true;
         }
@@ -442,7 +451,7 @@ class CreditController extends BaseController
         $paidInstallments = 0;
         $initialTotalPaid = 0.00;
 
-        if ($isLegacyMode) {
+        if ($isLegacyCredit) {
             $paidInstallments = (int) ($request->paid_installments_count ?? 0);
 
             // ✅ FIX: Calcular total_paid inicial correctamente para créditos legacy
@@ -475,7 +484,7 @@ class CreditController extends BaseController
         ]);
 
         // ✅ NUEVO: Crear pagos automáticos para créditos antiguos
-        if ($isLegacyMode) {
+        if ($isLegacyCredit) {
             $this->createLegacyPayments($credit, $paidInstallments);
         }
 
