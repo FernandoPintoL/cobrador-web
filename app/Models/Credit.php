@@ -46,7 +46,9 @@ class Credit extends Model
         'tenant_id',
         'client_id',
         'created_by',
+        'description',           // NUEVO: Concepto/descripción del crédito
         'amount',
+        'down_payment',          // NUEVO: Anticipo del cliente
         'balance',
         'total_paid',
         'frequency',
@@ -71,6 +73,7 @@ class Credit extends Model
         'longitude',
         'immediate_delivery_requested',
         'first_payment_today',
+        'is_custom_credit',      // NUEVO: Flag de modo personalizado
         'cash_balance_id',
     ];
 
@@ -80,10 +83,12 @@ class Credit extends Model
         'scheduled_delivery_date'      => 'datetime',
         'immediate_delivery_requested' => 'boolean',
         'first_payment_today'          => 'boolean',
+        'is_custom_credit'             => 'boolean',  // NUEVO
         'approved_at'                  => 'datetime',
         'delivered_at'                 => 'datetime',
         'completed_at'                 => 'datetime',
         'amount'                       => 'decimal:2',
+        'down_payment'                 => 'decimal:2', // NUEVO
         'total_paid'                   => 'decimal:2',
         'interest_rate'                => 'decimal:2',
         'total_amount'                 => 'decimal:2',
@@ -105,6 +110,7 @@ class Credit extends Model
         'payment_status',         // Estado: 'completed', 'on_track', 'at_risk', 'critical'
         'overdue_installments',   // Cantidad de cuotas atrasadas
         'requires_attention',     // Flag booleano de alerta
+        'financed_amount',        // NUEVO: Monto financiado (amount - down_payment)
     ];
 
     /**
@@ -201,12 +207,20 @@ class Credit extends Model
 
     /**
      * Calculate total amount with interest
+     *
+     * Para créditos personalizados con anticipo:
+     * total_amount = (amount - down_payment) × (1 + interest_rate/100)
+     *
+     * Para créditos normales (sin anticipo):
+     * total_amount = amount × (1 + interest_rate/100)
      */
     public function calculateTotalAmount(): float
     {
-        $interestAmount = $this->amount * ($this->interest_rate / 100);
+        // Usar monto financiado (considera anticipo si existe)
+        $financedAmount = $this->financed_amount;
+        $interestAmount = $financedAmount * ($this->interest_rate / 100);
 
-        return $this->amount + $interestAmount;
+        return $financedAmount + $interestAmount;
     }
 
     /**
@@ -472,6 +486,21 @@ class Credit extends Model
     }
 
     /**
+     * Monto financiado (amount - down_payment)
+     * Este es el monto sobre el cual se calculan los intereses
+     *
+     * Ejemplo:
+     * - Precio del producto: 2000 Bs (amount)
+     * - Anticipo: 500 Bs (down_payment)
+     * - Monto financiado: 1500 Bs (financed_amount)
+     * - Total con interés (20%): 1500 × 1.20 = 1800 Bs (total_amount)
+     */
+    public function getFinancedAmountAttribute(): float
+    {
+        return (float) $this->amount - (float) ($this->down_payment ?? 0);
+    }
+
+    /**
      * Procesar un pago (puede ser parcial, exacto o en exceso)
      */
     public function processPayment(float $paymentAmount, string $paymentType = 'regular'): array
@@ -535,7 +564,8 @@ class Credit extends Model
                 \DB::raw('COUNT(*) as payment_count'),
                 \DB::raw('MAX(payment_date) as last_payment_date'),
                 \DB::raw('MAX(payment_method) as payment_method'),
-                \DB::raw('MAX(received_by) as received_by_id')
+                \DB::raw('MAX(received_by) as received_by_id'),
+                \DB::raw('MAX(id) as payment_id') // ID del último pago para generar recibos
             )
             ->groupBy('installment_number')
             ->get()
@@ -605,6 +635,7 @@ class Credit extends Model
             $lastPaymentDate = $paymentData ? $paymentData->last_payment_date : null;
             $paymentMethod = $paymentData ? $paymentData->payment_method : null;
             $receivedById = $paymentData ? $paymentData->received_by_id : null;
+            $paymentId = $paymentData ? $paymentData->payment_id : null; // ID del pago para recibos
             $receivedByName = $receivedById && isset($cobradores[$receivedById])
                 ? $cobradores[$receivedById]->name
                 : null;
@@ -642,6 +673,7 @@ class Credit extends Model
                 'payment_method'     => $paymentMethod,
                 'received_by_id'     => $receivedById,
                 'received_by_name'   => $receivedByName,
+                'payment_id'         => $paymentId, // ID del pago para generar recibos
             ];
 
             // Para pagos diarios, avanzar al siguiente día para la próxima iteración

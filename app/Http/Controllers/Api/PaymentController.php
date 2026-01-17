@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Events\PaymentCreated;
+use App\Http\Controllers\PublicReceiptController;
 use App\Models\CashBalance;
 use App\Models\Credit;
 use App\Models\Payment;
 use App\Models\User;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -372,11 +374,18 @@ class PaymentController extends BaseController
             $message .= ' (Se creó una caja virtual automáticamente - requiere conciliación)';
         }
 
+        // Generar URL pública del recibo para el primer pago
+        $receiptUrl = null;
+        if (count($payments) > 0) {
+            $receiptUrl = PublicReceiptController::getPublicUrl($payments[0]->id);
+        }
+
         return $this->sendResponse([
             'payments' => $payments,
             'total_paid' => $totalPaid,
             'cash_balance_auto_created' => $cashBalanceWasAutoCreated,
             'cash_balance_id' => $cashBalance?->id,
+            'receipt_url' => $receiptUrl,
         ], $message);
     }
 
@@ -745,5 +754,83 @@ class PaymentController extends BaseController
         ];
 
         return $this->sendResponse($summary, 'Resumen de pagos del día obtenido exitosamente');
+    }
+
+    /**
+     * Generate a receipt for a specific payment.
+     * Supports HTML and PDF formats for thermal printers (58-80mm).
+     */
+    public function receipt(Request $request, Payment $payment)
+    {
+        $currentUser = Auth::user();
+
+        // Cargar relaciones necesarias primero para las verificaciones
+        $payment->load(['credit.client.assignedCobrador', 'receivedBy']);
+
+        // Admin y Manager pueden ver todos los recibos de su tenant
+        // Solo restringimos a cobradores
+        if ($currentUser->hasRole('cobrador') && !$currentUser->hasAnyRole(['admin', 'manager'])) {
+            // El cobrador puede ver recibos si:
+            // 1. Él registró el pago (received_by)
+            // 2. El cliente del crédito está asignado a él
+            $isReceiver = $payment->received_by === $currentUser->id;
+            $isAssignedCobrador = $payment->credit?->client?->assigned_cobrador_id === $currentUser->id;
+
+            if (!$isReceiver && !$isAssignedCobrador) {
+                return $this->sendError('No autorizado', 'No tienes acceso a este recibo', 403);
+            }
+        }
+        // Admin y Manager pueden ver todos los recibos de su tenant (sin restricción adicional)
+
+        // Obtener información del tenant
+        $tenant = $currentUser->tenant;
+
+        $format = $request->get('format', 'html');
+
+        $data = [
+            'payment' => $payment,
+            'tenant' => $tenant,
+        ];
+
+        if ($format === 'pdf') {
+            $pdf = Pdf::loadView('receipts.payment', $data);
+            $pdf->setPaper([0, 0, 226.77, 600], 'portrait'); // 80mm width, variable height
+
+            return $pdf->download("recibo-pago-{$payment->id}.pdf");
+        }
+
+        // Default: HTML
+        return response()->view('receipts.payment', $data)
+            ->header('Content-Type', 'text/html');
+    }
+
+    /**
+     * Get the public receipt URL for a payment.
+     * This URL can be shared with clients without authentication.
+     */
+    public function receiptUrl(Payment $payment)
+    {
+        $currentUser = Auth::user();
+
+        // Cargar relaciones necesarias primero para las verificaciones
+        $payment->load(['credit.client.assignedCobrador', 'receivedBy']);
+
+        // Admin y Manager pueden obtener URL de cualquier recibo de su tenant
+        // Solo restringimos a cobradores
+        if ($currentUser->hasRole('cobrador') && !$currentUser->hasAnyRole(['admin', 'manager'])) {
+            $isReceiver = $payment->received_by === $currentUser->id;
+            $isAssignedCobrador = $payment->credit?->client?->assigned_cobrador_id === $currentUser->id;
+
+            if (!$isReceiver && !$isAssignedCobrador) {
+                return $this->sendError('No autorizado', 'No tienes acceso a este recibo', 403);
+            }
+        }
+
+        $receiptUrl = PublicReceiptController::getPublicUrl($payment->id);
+
+        return $this->sendResponse([
+            'payment_id' => $payment->id,
+            'receipt_url' => $receiptUrl,
+        ], 'URL de recibo generada exitosamente');
     }
 }

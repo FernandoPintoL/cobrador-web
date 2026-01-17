@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CashBalanceController;
+use App\Http\Controllers\Api\ClientCategoryController;
 use App\Http\Controllers\Api\CreditController;
 use App\Http\Controllers\Api\CreditWaitingListController;
 use App\Http\Controllers\Api\DashboardController;
@@ -87,6 +88,17 @@ Route::middleware(['auth:sanctum', 'tenant_active'])->group(function () {
     Route::get('/client-categories/statistics', [UserController::class, 'getClientCategoryStatistics'])->name('api.client-categories.statistics');
     Route::post('/clients/bulk-update-categories', [UserController::class, 'bulkUpdateClientCategories'])->name('api.clients.bulk-update-categories');
 
+    // Límites de crédito por categoría
+    Route::get('/client-categories/all', [ClientCategoryController::class, 'index'])->name('api.client-categories.all');
+    Route::get('/client-categories/{code}/details', [ClientCategoryController::class, 'show'])->name('api.client-categories.show');
+    Route::patch('/client-categories/{code}/limits', [ClientCategoryController::class, 'updateLimits'])->name('api.client-categories.update-limits');
+    Route::get('/client-categories/stats-extended', [ClientCategoryController::class, 'stats'])->name('api.client-categories.stats-extended');
+
+    // Límites de crédito individuales por cliente
+    Route::get('/users/{client}/credit-limits', [UserController::class, 'getClientCreditLimits'])->name('api.users.credit-limits');
+    Route::patch('/users/{client}/credit-limits', [UserController::class, 'updateClientCreditLimits'])->name('api.users.update-credit-limits');
+    Route::delete('/users/{client}/credit-limits', [UserController::class, 'clearClientCreditLimits'])->name('api.users.clear-credit-limits');
+
     // Rutas
     Route::apiResource('routes', RouteController::class)->names([
         'index'   => 'api.routes.index',
@@ -165,6 +177,8 @@ Route::middleware(['auth:sanctum', 'tenant_active'])->group(function () {
     Route::get('/payments/cobrador/{cobrador}/stats', [PaymentController::class, 'getCobradorStats'])->name('api.payments.cobrador.stats');
     Route::get('/payments/recent', [PaymentController::class, 'getRecent'])->name('api.payments.recent');
     Route::get('/payments/today-summary', [PaymentController::class, 'getTodaySummary'])->name('api.payments.today-summary');
+    Route::get('/payments/{payment}/receipt', [PaymentController::class, 'receipt'])->name('api.payments.receipt');
+    Route::get('/payments/{payment}/receipt-url', [PaymentController::class, 'receiptUrl'])->name('api.payments.receipt-url');
 
     // Balances de efectivo - RUTAS ESPECÍFICAS PRIMERO (antes del resource)
     Route::get('/cash-balances/current-status', [CashBalanceController::class, 'getCurrentStatus'])

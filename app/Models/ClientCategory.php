@@ -17,6 +17,10 @@ class ClientCategory extends Model
         'is_active',
         'min_overdue_count',
         'max_overdue_count',
+        // Campos de límite de crédito
+        'max_amount',
+        'min_amount',
+        'max_credits',
     ];
 
     protected function casts(): array
@@ -25,6 +29,21 @@ class ClientCategory extends Model
             'is_active' => 'boolean',
             'min_overdue_count' => 'integer',
             'max_overdue_count' => 'integer',
+            'max_amount' => 'decimal:2',
+            'min_amount' => 'decimal:2',
+            'max_credits' => 'integer',
+        ];
+    }
+
+    /**
+     * Obtiene los límites de crédito para esta categoría.
+     */
+    public function getCreditLimits(): array
+    {
+        return [
+            'max_amount' => $this->max_amount,
+            'min_amount' => $this->min_amount ?? 0,
+            'max_credits' => $this->max_credits,
         ];
     }
 

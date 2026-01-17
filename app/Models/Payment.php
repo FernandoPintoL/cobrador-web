@@ -21,6 +21,7 @@ class Payment extends Model
         'accumulated_amount',
         'payment_date',
         'payment_method',
+        'payment_type',          // NUEVO: 'regular', 'down_payment', 'extra'
         'latitude',
         'longitude',
         'status',

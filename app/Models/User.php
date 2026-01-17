@@ -121,6 +121,9 @@ class User extends Authenticatable
         'assigned_manager_id',
         'ci', // Nuevo campo para el CI
         'client_category', // Nuevo campo para la categoría del cliente
+        // Límites de crédito personalizados (sobreescriben los de categoría)
+        'credit_limit_override',
+        'max_credits_override',
     ];
 
     /**
@@ -145,6 +148,8 @@ class User extends Authenticatable
             'password' => 'hashed',
             'latitude' => 'decimal:8',
             'longitude' => 'decimal:8',
+            'credit_limit_override' => 'decimal:2',
+            'max_credits_override' => 'integer',
         ];
     }
 
@@ -476,6 +481,52 @@ class User extends Authenticatable
         }
 
         return null;
+    }
+
+    /**
+     * Obtiene los límites de crédito efectivos para este cliente.
+     * Prioriza los límites individuales (override) sobre los de categoría.
+     *
+     * @return array{max_amount: float|null, min_amount: float, max_credits: int|null}
+     */
+    public function getEffectiveCreditLimits(): array
+    {
+        // Valores por defecto (sin límite)
+        $limits = [
+            'max_amount' => null,
+            'min_amount' => 0,
+            'max_credits' => null,
+        ];
+
+        // Obtener límites de la categoría
+        try {
+            if ($this->clientCategory) {
+                $categoryLimits = $this->clientCategory->getCreditLimits();
+                $limits['max_amount'] = $categoryLimits['max_amount'];
+                $limits['min_amount'] = $categoryLimits['min_amount'] ?? 0;
+                $limits['max_credits'] = $categoryLimits['max_credits'];
+            }
+        } catch (\Throwable $e) {
+            // Si falla, usar valores por defecto
+        }
+
+        // Sobreescribir con límites individuales si existen
+        if ($this->credit_limit_override !== null) {
+            $limits['max_amount'] = (float) $this->credit_limit_override;
+        }
+        if ($this->max_credits_override !== null) {
+            $limits['max_credits'] = (int) $this->max_credits_override;
+        }
+
+        return $limits;
+    }
+
+    /**
+     * Verifica si el cliente tiene límites personalizados (override).
+     */
+    public function hasCustomCreditLimits(): bool
+    {
+        return $this->credit_limit_override !== null || $this->max_credits_override !== null;
     }
 
     /**

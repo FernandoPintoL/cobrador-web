@@ -147,8 +147,9 @@ class CreditController extends BaseController
      */
     public function store(Request $request)
     {
-        // ✅ Determinar si es crédito antiguo ANTES de validar
+        // ✅ Determinar tipo de crédito ANTES de validar
         $isLegacyCredit = $request->filled('is_legacy_credit') && $request->is_legacy_credit;
+        $isCustomCredit = $request->boolean('is_custom_credit');
 
         // Validaciones base
         $rules = [
@@ -167,6 +168,10 @@ class CreditController extends BaseController
             'longitude'                    => 'nullable|numeric|between:-180,180',
             'is_legacy_credit'             => 'nullable|boolean',
             'paid_installments_count'      => 'nullable|integer|min:0',
+            // NUEVOS: Campos para modo personalizado
+            'description'                  => 'nullable|string|max:255',
+            'down_payment'                 => 'nullable|numeric|min:0',
+            'is_custom_credit'             => 'nullable|boolean',
         ];
 
         // ✅ Validación condicional para scheduled_delivery_date
@@ -317,22 +322,31 @@ class CreditController extends BaseController
             );
         }
 
-        // Límites generales por categoría (A/B)
-        $categoryLimits = [
-            'A' => ['min_amount' => 0, 'max_amount' => 10000, 'max_credits' => 5],
-            'B' => ['min_amount' => 0, 'max_amount' => 5000, 'max_credits' => 3],
-        ];
-        if ($clientCategory && isset($categoryLimits[$clientCategory])) {
-            $limits = $categoryLimits[$clientCategory];
-            // Validar monto
-            if ($request->amount < $limits['min_amount'] || $request->amount > $limits['max_amount']) {
-                return $this->sendError(
-                    'Monto no permitido por ranking',
-                    "Para clientes categoría {$clientCategory}, el monto debe estar entre {$limits['min_amount']} y {$limits['max_amount']}",
-                    422
-                );
-            }
-            // Validar cantidad de créditos (pendientes/por entregar/activos)
+        // ✅ NUEVO: Obtener límites efectivos (categoría + override individual)
+        $limits = $client->getEffectiveCreditLimits();
+        $hasCustomLimits = $client->hasCustomCreditLimits();
+        $limitSource = $hasCustomLimits ? 'personalizado' : "categoría {$clientCategory}";
+
+        // Validar monto máximo
+        if ($limits['max_amount'] !== null && $request->amount > $limits['max_amount']) {
+            return $this->sendError(
+                'Monto no permitido',
+                "El monto máximo permitido para este cliente ({$limitSource}) es Bs. " . number_format($limits['max_amount'], 2),
+                422
+            );
+        }
+
+        // Validar monto mínimo
+        if ($limits['min_amount'] > 0 && $request->amount < $limits['min_amount']) {
+            return $this->sendError(
+                'Monto no permitido',
+                "El monto mínimo permitido para este cliente ({$limitSource}) es Bs. " . number_format($limits['min_amount'], 2),
+                422
+            );
+        }
+
+        // Validar cantidad de créditos (pendientes/por entregar/activos)
+        if ($limits['max_credits'] !== null) {
             $engagedStatuses = ['pending_approval', 'waiting_delivery', 'active'];
             $currentEngaged  = Credit::where('client_id', $client->id)
                 ->whereIn('status', $engagedStatuses)
@@ -340,7 +354,7 @@ class CreditController extends BaseController
             if ($currentEngaged >= $limits['max_credits']) {
                 return $this->sendError(
                     'Límite de créditos alcanzado',
-                    "El cliente ya tiene {$currentEngaged} créditos en proceso/activos; máximo permitido para categoría {$clientCategory} es {$limits['max_credits']}",
+                    "El cliente ya tiene {$currentEngaged} créditos en proceso/activos; máximo permitido ({$limitSource}) es {$limits['max_credits']}",
                     422
                 );
             }
@@ -378,8 +392,9 @@ class CreditController extends BaseController
 
         $initialStatus = 'active'; // Por defecto para compatibilidad
 
-        if ($isLegacyCredit) {
-            // Para créditos antiguos, el estado inicial es SIEMPRE 'active'
+        if ($isLegacyCredit || $isCustomCredit) {
+            // Para créditos antiguos y personalizados, el estado inicial es SIEMPRE 'active'
+            // Los personalizados representan ventas con entrega inmediata
             $initialStatus = 'active';
         } elseif ($request->has('status')) {
             $initialStatus = $request->status;
@@ -387,8 +402,8 @@ class CreditController extends BaseController
             // Los managers y cobradores crean créditos en lista de espera por defecto
             $initialStatus = 'pending_approval';
         }
-        // Fast-track: si manager crea a cliente directo, saltar aprobación (NO aplica a legacy)
-        if ($isDirectClientOfManager && !$isLegacyCredit) {
+        // Fast-track: si manager crea a cliente directo, saltar aprobación (NO aplica a legacy ni custom)
+        if ($isDirectClientOfManager && !$isLegacyCredit && !$isCustomCredit) {
             $initialStatus        = 'waiting_delivery';
             $forceWaitingDelivery = true;
         }
@@ -426,10 +441,16 @@ class CreditController extends BaseController
             }
         }
 
-        // Preparar fechas considerando fast-track
+        // Preparar fechas considerando fast-track y créditos personalizados
         $startDate             = $request->start_date;
         $endDate               = $request->end_date;
         $scheduledDeliveryDate = $request->scheduled_delivery_date;
+
+        // ✅ CRÉDITOS PERSONALIZADOS: Fecha de entrega = fecha de inicio (entrega inmediata)
+        if ($isCustomCredit) {
+            $scheduledDeliveryDate = $startDate;
+        }
+
         if ($forceWaitingDelivery) {
             $approvedAtNow = now();
             $startDate     = (clone $approvedAtNow)->addDay();
@@ -461,24 +482,52 @@ class CreditController extends BaseController
             }
         }
 
+        // Calcular valores considerando anticipo para modo personalizado
+        $downPayment = (float) ($request->down_payment ?? 0);
+
+        // Si hay anticipo, recalcular total_amount y balance
+        $amount = (float) $request->amount;
+        $financedAmount = $amount - $downPayment;
+
+        // Calcular total_amount si no viene del frontend o si hay anticipo
+        $totalAmount = $request->total_amount;
+        if (!$totalAmount || $downPayment > 0) {
+            // total_amount = monto_financiado × (1 + interés)
+            $totalAmount = $financedAmount * (1 + ($interestRateValue / 100));
+        }
+
+        // Balance inicial = total_amount (lo que debe pagar después del anticipo)
+        $balance = $request->balance ?? $totalAmount;
+
+        // Calcular cuota si no viene del frontend
+        $installmentAmount = $request->installment_amount;
+        $totalInstallments = $request->total_installments ?? 24;
+        if (!$installmentAmount && $totalInstallments > 0) {
+            $installmentAmount = $totalAmount / $totalInstallments;
+        }
+
         $credit = Credit::create([
             'client_id'                    => $request->client_id,
             'created_by'                   => $currentUser->id,
-            'amount'                       => $request->amount,
+            'description'                  => $request->description, // NUEVO
+            'amount'                       => $amount,
+            'down_payment'                 => $downPayment, // NUEVO
             'interest_rate_id'             => $interestRateId,
             'interest_rate'                => $interestRateValue,
-            'total_amount'                 => $request->total_amount ?? $request->amount,
-            'balance'                      => $request->balance,
-            'total_paid'                   => $initialTotalPaid, // ✅ FIX: Inicializar correctamente para legacy
-            'installment_amount'           => $request->installment_amount, // si no se envía, el modelo lo calculará
-            'total_installments'           => $request->total_installments ?? 24,
-            'paid_installments'            => $paidInstallments, // ✅ NUEVO: Cuotas pagadas para legacy
+            'total_amount'                 => $totalAmount,
+            'balance'                      => $balance,
+            'total_paid'                   => $initialTotalPaid,
+            'installment_amount'           => $installmentAmount,
+            'total_installments'           => $totalInstallments,
+            'paid_installments'            => $paidInstallments,
             'frequency'                    => $request->frequency,
             'start_date'                   => $startDate,
             'end_date'                     => $endDate,
             'status'                       => $initialStatus,
-            'scheduled_delivery_date'      => $scheduledDeliveryDate, // Para managers
+            'scheduled_delivery_date'      => $scheduledDeliveryDate,
             'immediate_delivery_requested' => (bool) $request->boolean('immediate_delivery_requested'),
+            'first_payment_today'          => (bool) $request->boolean('first_payment_today'),
+            'is_custom_credit'             => $isCustomCredit, // NUEVO
             'latitude'                     => $request->latitude,
             'longitude'                    => $request->longitude,
         ]);
@@ -486,6 +535,11 @@ class CreditController extends BaseController
         // ✅ NUEVO: Crear pagos automáticos para créditos antiguos
         if ($isLegacyCredit) {
             $this->createLegacyPayments($credit, $paidInstallments);
+        }
+
+        // ✅ NUEVO: Crear pago de anticipo si existe
+        if ($downPayment > 0) {
+            $this->createDownPayment($credit, $downPayment);
         }
 
         // Si se aplicó fast-track, setear aprobaciones automáticamente
@@ -1255,5 +1309,50 @@ class CreditController extends BaseController
         // ✅ Recalcular el balance del crédito para asegurar coherencia
         // Esto actualiza balance, total_paid y paid_installments basándose en los pagos reales
         $credit->recalculateBalance();
+    }
+
+    /**
+     * ✅ NUEVO: Crea el pago de anticipo para créditos personalizados
+     *
+     * El anticipo es un pago inicial que el cliente deja ANTES de que inicie
+     * el ciclo de cuotas del crédito. Se registra para trazabilidad contable.
+     *
+     * @param Credit $credit El crédito recién creado
+     * @param float $downPaymentAmount Monto del anticipo
+     * @return void
+     */
+    private function createDownPayment(Credit $credit, float $downPaymentAmount)
+    {
+        if ($downPaymentAmount <= 0) {
+            return;
+        }
+
+        // Obtener el cobrador asignado al cliente
+        $cobrador = $credit->client->assignedCobrador;
+        $cobradorId = $cobrador ? $cobrador->id : Auth::id();
+
+        // ✅ Usar withoutEvents para evitar que el evento modifique el balance/paid_installments
+        // El anticipo NO es una cuota, no debe afectar el contador de cuotas
+        \App\Models\Payment::withoutEvents(function () use ($credit, $downPaymentAmount, $cobradorId) {
+            \App\Models\Payment::create([
+                'credit_id'          => $credit->id,
+                'client_id'          => $credit->client_id,
+                'cobrador_id'        => $cobradorId,
+                'amount'             => $downPaymentAmount,
+                'accumulated_amount' => $downPaymentAmount,
+                'payment_date'       => now(),
+                'payment_method'     => 'cash',
+                'payment_type'       => 'down_payment', // ✅ Tipo especial para anticipo
+                'installment_number' => 0, // No es una cuota regular
+                'status'             => 'completed',
+                'received_by'        => Auth::id(),
+                'tenant_id'          => $credit->tenant_id,
+            ]);
+        });
+
+        \Illuminate\Support\Facades\Log::info("Down payment created for credit #{$credit->id}", [
+            'amount' => $downPaymentAmount,
+            'received_by' => Auth::id(),
+        ]);
     }
 }

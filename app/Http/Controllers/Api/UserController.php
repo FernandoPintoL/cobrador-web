@@ -1359,6 +1359,129 @@ class UserController extends BaseController
     }
 
     /**
+     * Update client credit limits (override).
+     * Solo managers y admins pueden actualizar.
+     */
+    public function updateClientCreditLimits(Request $request, User $client)
+    {
+        $currentUser = Auth::user();
+
+        // Verificar permisos
+        if (!$currentUser->hasRole('admin') && !$currentUser->hasRole('manager')) {
+            return $this->sendError('Sin permisos', 'Solo administradores y managers pueden modificar límites', 403);
+        }
+
+        // Verificar que el usuario sea un cliente
+        if (!$client->hasRole('client')) {
+            return $this->sendError('Usuario no válido', 'El usuario especificado no es un cliente', 400);
+        }
+
+        $request->validate([
+            'credit_limit_override' => 'nullable|numeric|min:0',
+            'max_credits_override' => 'nullable|integer|min:0',
+        ]);
+
+        $updateData = [];
+
+        // Permitir establecer a null para eliminar el override
+        if ($request->has('credit_limit_override')) {
+            $updateData['credit_limit_override'] = $request->credit_limit_override;
+        }
+        if ($request->has('max_credits_override')) {
+            $updateData['max_credits_override'] = $request->max_credits_override;
+        }
+
+        $client->update($updateData);
+        $client->load('roles', 'permissions', 'clientCategory');
+
+        // Obtener los límites efectivos para la respuesta
+        $effectiveLimits = $client->getEffectiveCreditLimits();
+
+        return $this->sendResponse([
+            'client' => $client,
+            'effective_limits' => $effectiveLimits,
+            'has_custom_limits' => $client->hasCustomCreditLimits(),
+        ], 'Límites de crédito del cliente actualizados correctamente');
+    }
+
+    /**
+     * Get client credit limits (including effective limits).
+     */
+    public function getClientCreditLimits(User $client)
+    {
+        // Verificar que el usuario sea un cliente
+        if (!$client->hasRole('client')) {
+            return $this->sendError('Usuario no válido', 'El usuario especificado no es un cliente', 400);
+        }
+
+        $client->load('clientCategory');
+
+        // Obtener límites de categoría
+        $categoryLimits = null;
+        if ($client->clientCategory) {
+            $categoryLimits = $client->clientCategory->getCreditLimits();
+        }
+
+        // Obtener límites efectivos
+        $effectiveLimits = $client->getEffectiveCreditLimits();
+
+        // Contar créditos activos
+        $engagedStatuses = ['pending_approval', 'waiting_delivery', 'active'];
+        $currentCredits = \App\Models\Credit::where('client_id', $client->id)
+            ->whereIn('status', $engagedStatuses)
+            ->count();
+
+        return $this->sendResponse([
+            'client_id' => $client->id,
+            'client_name' => $client->name,
+            'client_category' => $client->client_category,
+            'category_limits' => $categoryLimits,
+            'individual_overrides' => [
+                'credit_limit_override' => $client->credit_limit_override,
+                'max_credits_override' => $client->max_credits_override,
+            ],
+            'effective_limits' => $effectiveLimits,
+            'has_custom_limits' => $client->hasCustomCreditLimits(),
+            'current_credits' => $currentCredits,
+            'available_credits' => $effectiveLimits['max_credits'] !== null
+                ? max(0, $effectiveLimits['max_credits'] - $currentCredits)
+                : null,
+        ], 'Límites de crédito del cliente');
+    }
+
+    /**
+     * Clear client credit limits override (use category defaults).
+     */
+    public function clearClientCreditLimits(User $client)
+    {
+        $currentUser = Auth::user();
+
+        // Verificar permisos
+        if (!$currentUser->hasRole('admin') && !$currentUser->hasRole('manager')) {
+            return $this->sendError('Sin permisos', 'Solo administradores y managers pueden modificar límites', 403);
+        }
+
+        // Verificar que el usuario sea un cliente
+        if (!$client->hasRole('client')) {
+            return $this->sendError('Usuario no válido', 'El usuario especificado no es un cliente', 400);
+        }
+
+        $client->update([
+            'credit_limit_override' => null,
+            'max_credits_override' => null,
+        ]);
+
+        $client->load('clientCategory');
+        $effectiveLimits = $client->getEffectiveCreditLimits();
+
+        return $this->sendResponse([
+            'client' => $client,
+            'effective_limits' => $effectiveLimits,
+            'has_custom_limits' => false,
+        ], 'Límites personalizados eliminados. El cliente ahora usa los límites de su categoría.');
+    }
+
+    /**
      * Get clients by category.
      */
     public function getClientsByCategory(Request $request)

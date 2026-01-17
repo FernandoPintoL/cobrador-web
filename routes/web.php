@@ -181,5 +181,13 @@ Route::middleware(['auth', 'super_admin'])->prefix('super-admin')->group(functio
         ->name('super-admin.subscriptions.index');
 });
 
+// ============================================================================
+// Rutas Públicas (sin autenticación)
+// ============================================================================
+
+// Recibo de pago público (para compartir con clientes)
+Route::get('/recibo/{payment}/{token}', [App\Http\Controllers\PublicReceiptController::class, 'show'])
+    ->name('public.receipt');
+
 require __DIR__ . '/settings.php';
 require __DIR__ . '/auth.php';
